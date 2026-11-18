@@ -6,15 +6,16 @@ import { AppError } from '@/lib/errors';
 import { useToast } from '@/context/ToastContext';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/Button';
-import { TextField } from '@/components/ui/Field';
+import { Select, TextField } from '@/components/ui/Field';
 import { Alert } from '@/components/ui/Feedback';
 import { PageHeader } from '@/components/ui/Card';
 import { FileDropzone } from '@/components/pod/FileDropzone';
 import { GuidelinesCard } from '@/components/dashboard/GuidelinesCard';
-import { ACCEPTED_PHOTO_TYPES, ACCEPTED_POD_TYPES } from '@/utils/constants';
+import { ACCEPTED_PHOTO_TYPES, ACCEPTED_POD_TYPES, categoryLabel } from '@/utils/constants';
+import type { Category } from '@/types';
 import { todayIso } from '@/utils/format';
 
-type Fields = { poNumber: string; invoiceNumber: string; deliveryDate: string; deliveryReference: string };
+type Fields = { category: string; poNumber: string; invoiceNumber: string; deliveryDate: string; deliveryReference: string };
 type Errors = Partial<Record<keyof Fields | 'podDocument', string>>;
 type Result = { id: string; submissionNumber: string; poNumber: string; invoiceNumber: string };
 
@@ -35,7 +36,9 @@ export default function UploadPodPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [progress, setProgress] = useState(0);
-  const [fields, setFields] = useState<Fields>({ poNumber: '', invoiceNumber: '', deliveryDate: '', deliveryReference: '' });
+  const myCategories = user?.vendor?.categories ?? [];
+  const blank = (): Fields => ({ category: myCategories.length === 1 ? myCategories[0] : '', poNumber: '', invoiceNumber: '', deliveryDate: '', deliveryReference: '' });
+  const [fields, setFields] = useState<Fields>(blank);
   const [pod, setPod] = useState<File | null>(null);
   const [photo, setPhoto] = useState<File | null>(null);
   const [errors, setErrors] = useState<Errors>({});
@@ -47,6 +50,7 @@ export default function UploadPodPage() {
 
   const validate = (): Errors => {
     const e: Errors = {};
+    if (!fields.category) e.category = 'Select the category';
     if (!fields.poNumber.trim()) e.poNumber = 'PO Number is required';
     if (!fields.invoiceNumber.trim()) e.invoiceNumber = 'Invoice Number is required';
     if (!fields.deliveryDate) e.deliveryDate = 'Delivery date is required';
@@ -67,6 +71,7 @@ export default function UploadPodPage() {
     setError(null);
     setProgress(0);
     const clean = {
+      category: fields.category as Category,
       poNumber: fields.poNumber.trim(),
       invoiceNumber: fields.invoiceNumber.trim(),
       deliveryDate: fields.deliveryDate,
@@ -88,7 +93,7 @@ export default function UploadPodPage() {
   };
 
   const reset = () => {
-    setFields({ poNumber: '', invoiceNumber: '', deliveryDate: '', deliveryReference: '' });
+    setFields(blank());
     setPod(null);
     setPhoto(null);
     setErrors({});
@@ -103,7 +108,7 @@ export default function UploadPodPage() {
             <CheckCircle2 className="h-9 w-9 text-emerald-600" />
           </div>
           <h1 className="mt-5 text-2xl font-extrabold text-navy-900">POD submitted successfully</h1>
-          <p className="mt-2 text-slate-600">Your document has been received and is now under review by RCPL.</p>
+          <p className="mt-2 text-slate-600">Your POD has been sent to the RCPL category team.</p>
           <div className="mx-auto mt-6 grid max-w-md grid-cols-2 gap-4 rounded-2xl bg-slate-50 p-5 text-left">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Submission ID</p>
@@ -111,7 +116,7 @@ export default function UploadPodPage() {
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Status</p>
-              <p className="text-lg font-bold text-amber-600">Under Review</p>
+              <p className="text-lg font-bold text-amber-600">With Category Team</p>
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">PO Number</p>
@@ -142,7 +147,19 @@ export default function UploadPodPage() {
         <form onSubmit={submit} noValidate className="space-y-6">
           {error && <Alert kind="error">{error}</Alert>}
           <Step n={1} title="Delivery details">
+            {myCategories.length === 0 && (
+              <Alert kind="warning" className="mb-4">No category is assigned to your vendor account yet. Please contact RCPL before uploading.</Alert>
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <Select
+                  label="Category *"
+                  value={fields.category}
+                  onChange={set('category')}
+                  error={errors.category}
+                  options={[{ value: '', label: 'Select category…' }, ...myCategories.map((c) => ({ value: c, label: categoryLabel(c) }))]}
+                />
+              </div>
               <TextField label="PO Number" required placeholder="e.g. PO-25678" value={fields.poNumber} onChange={set('poNumber')} error={errors.poNumber} maxLength={50} />
               <TextField label="Invoice Number" required placeholder="e.g. INV-78452" value={fields.invoiceNumber} onChange={set('invoiceNumber')} error={errors.invoiceNumber} maxLength={50} />
               <TextField label="Delivery Date" required type="date" max={todayIso()} value={fields.deliveryDate} onChange={set('deliveryDate')} error={errors.deliveryDate} />

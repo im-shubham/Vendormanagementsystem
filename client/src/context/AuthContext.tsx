@@ -3,11 +3,12 @@ import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User as F
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { AppError, toAppError } from '@/lib/errors';
-import type { User, VendorAccountStatus } from '@/types';
+import type { Category, Role, User, VendorAccountStatus } from '@/types';
 
 interface AuthState {
   user: User | null;
   loading: boolean;
+  /** portal 'admin' = RCPL staff portal (Admin, Category team, Billing team) */
   login: (email: string, password: string, portal: 'vendor' | 'admin') => Promise<User>;
   logout: () => Promise<void>;
 }
@@ -29,7 +30,7 @@ const STATUS_ERRORS: Partial<Record<VendorAccountStatus, { code: string; message
  */
 async function resolveBase(fu: FirebaseUser) {
   const token = await fu.getIdTokenResult();
-  const role = token.claims.role as 'ADMIN' | 'VENDOR' | undefined;
+  const role = token.claims.role as Role | undefined;
   const vendorId = (token.claims.vendorId as string | undefined) ?? null;
   return { role, vendorId };
 }
@@ -50,10 +51,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       try {
         const { role, vendorId } = await resolveBase(fu);
-        if (role === 'ADMIN') {
-          const profile = await getDoc(doc(db, 'userProfiles', fu.uid));
-          setUser({ uid: fu.uid, role, email: fu.email ?? '', fullName: profile.get('fullName') ?? fu.displayName, vendor: null });
-          setLoading(false);
+        if (role === 'ADMIN' || role === 'CATEGORY' || role === 'BILLING') {
+          // Live profile: category changes / deactivation apply immediately.
+          unsubVendor = onSnapshot(
+            doc(db, 'userProfiles', fu.uid),
+            (snap) => {
+              if (!snap.exists() || snap.get('active') === false || snap.get('role') !== role) {
+                void signOut(auth);
+                return;
+              }
+              setUser({
+                uid: fu.uid,
+                role,
+                email: fu.email ?? '',
+                fullName: snap.get('fullName') ?? fu.displayName,
+                categories: (snap.get('categories') as Category[]) ?? [],
+                vendor: null,
+              });
+              setLoading(false);
+            },
+            () => {
+              setUser(null);
+              setLoading(false);
+            },
+          );
         } else if (role === 'VENDOR' && vendorId) {
           unsubVendor = onSnapshot(
             doc(db, 'vendors', vendorId),
@@ -64,7 +85,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 role: 'VENDOR',
                 email: fu.email ?? '',
                 fullName: v.vendorName ?? fu.displayName,
-                vendor: { id: vendorId, name: v.vendorName ?? '', code: v.vendorCode ?? '', status: v.accountStatus ?? 'PENDING_APPROVAL' },
+                categories: [],
+                vendor: { id: vendorId, name: v.vendorName ?? '', code: v.vendorCode ?? '', status: v.accountStatus ?? 'PENDING_APPROVAL', categories: v.categories ?? [] },
               });
               setLoading(false);
             },
@@ -102,8 +124,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
     const { role, vendorId } = await resolveBase(fu);
     if (!role) return fail(new AppError('No portal profile is linked to this login. Please contact the administrator.', 'NO_PROFILE'));
-    if (portal === 'admin' && role !== 'ADMIN') return fail(new AppError('This login is not authorised for the Admin Portal.', 'WRONG_PORTAL'));
-    if (portal === 'vendor' && role !== 'VENDOR') return fail(new AppError('Administrators must sign in through the Admin Portal.', 'WRONG_PORTAL'));
+    if (portal === 'admin' && role === 'VENDOR') return fail(new AppError('Vendors must sign in through the Vendor Portal.', 'WRONG_PORTAL'));
+    if (portal === 'vendor' && role !== 'VENDOR') return fail(new AppError('RCPL staff must sign in through the Staff Portal.', 'WRONG_PORTAL'));
 
     if (role === 'VENDOR') {
       const v = await getDoc(doc(db, 'vendors', vendorId!));
@@ -112,9 +134,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const s = STATUS_ERRORS[status] ?? STATUS_ERRORS.PENDING_APPROVAL!;
         return fail(new AppError(s.message, s.code, { vendorName: v.get('vendorName'), vendorCode: v.get('vendorCode') }));
       }
-      return { uid: fu.uid, role, email: fu.email ?? '', fullName: v.get('vendorName'), vendor: { id: vendorId!, name: v.get('vendorName'), code: v.get('vendorCode'), status } };
+      return {
+        uid: fu.uid, role, email: fu.email ?? '', fullName: v.get('vendorName'), categories: [],
+        vendor: { id: vendorId!, name: v.get('vendorName'), code: v.get('vendorCode'), status, categories: v.get('categories') ?? [] },
+      };
     }
-    return { uid: fu.uid, role, email: fu.email ?? '', fullName: fu.displayName, vendor: null };
+    const profile = await getDoc(doc(db, 'userProfiles', fu.uid));
+    if (!profile.exists() || profile.get('active') === false) {
+      return fail(new AppError('Your staff account is inactive. Please contact the administrator.', 'ACCOUNT_DEACTIVATED'));
+    }
+    return { uid: fu.uid, role, email: fu.email ?? '', fullName: profile.get('fullName') ?? fu.displayName, categories: profile.get('categories') ?? [], vendor: null };
   }, []);
 
   const logout = useCallback(async () => {

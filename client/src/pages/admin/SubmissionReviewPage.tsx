@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, XCircle } from 'lucide-react';
+import { ArrowLeft, ReceiptText, RotateCcw, Send, Upload } from 'lucide-react';
 import { useAsync } from '@/hooks/useAsync';
+import { useAuth } from '@/context/AuthContext';
 import { adminService } from '@/services/adminService';
 import { useToast } from '@/context/ToastContext';
 import { Card, CardHeader, DetailItem } from '@/components/ui/Card';
@@ -11,26 +12,45 @@ import { PodStatusBadge } from '@/components/ui/StatusBadge';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { DocumentViewer } from '@/components/pod/DocumentViewer';
 import { StatusTimeline } from '@/components/pod/StatusTimeline';
+import { ReuploadForm } from '@/components/pod/ReuploadForm';
+import { categoryLabel, ROLE_LABELS } from '@/utils/constants';
 import { formatDate, formatDateTime } from '@/utils/format';
 
-const REJECTION_REASONS = ['Receiving stamp/seal not visible', 'Signature missing or unreadable', 'Document is blurred or cropped', 'Invoice / PO number mismatch', 'Incomplete POD — pages missing'];
+const SEND_BACK_REASONS = [
+  'Receiving stamp/seal not visible',
+  'Signature missing or unreadable',
+  'Document is blurred or cropped',
+  'Invoice / PO number mismatch',
+  'Incomplete POD — pages missing',
+];
+
+type Action = 'forward' | 'billed' | 'sendBack' | null;
 
 export default function SubmissionReviewPage() {
   const { id = '' } = useParams();
+  const { user } = useAuth();
   const toast = useToast();
-  const { data, error, loading, reload } = useAsync(() => adminService.getSubmission(id), [id]);
-  const [action, setAction] = useState<'approve' | 'reject' | null>(null);
+  const { data, error, loading, reload } = useAsync(() => adminService.getSubmission(user!, id), [id]);
+  const [action, setAction] = useState<Action>(null);
+  const [showUpload, setShowUpload] = useState(false);
 
   if (loading && !data) return <PageLoader />;
   if (error && !data) return <ErrorState message={error} onRetry={reload} />;
-  if (!data) return null;
+  if (!data || !user) return null;
   const { submission: s, vendor, documents, history } = data;
-  const canReview = s.status === 'UNDER_REVIEW';
+  const role = user.role;
+
+  const canCategory = role === 'ADMIN' || role === 'CATEGORY';
+  const canBilling = role === 'ADMIN' || role === 'BILLING';
+  const canForward = canCategory && s.status === 'SUBMITTED';
+  const canBill = canBilling && s.status === 'FORWARDED_TO_BILLING';
+  const canSendBack = (canCategory && s.status === 'SUBMITTED') || (canBilling && s.status === 'FORWARDED_TO_BILLING');
+  const canUpload = canCategory && s.status === 'RESUBMISSION_REQUESTED';
 
   return (
     <div className="space-y-6">
       <Link to="/admin/submissions" className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-navy-800">
-        <ArrowLeft className="h-4 w-4" /> POD Submissions
+        <ArrowLeft className="h-4 w-4" /> {role === 'BILLING' ? 'PODs for Billing' : 'POD Submissions'}
       </Link>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
@@ -38,29 +58,57 @@ export default function SubmissionReviewPage() {
             {s.submissionNumber} <PodStatusBadge status={s.status} className="text-sm" />
           </h1>
           <p className="mt-1 text-slate-500">
-            {vendor.name} · Submitted {formatDateTime(s.submittedAt)} · Version {s.currentVersion}
+            {vendor.name} · {categoryLabel(s.category)} · Submitted {formatDateTime(s.submittedAt)} · Version {s.currentVersion}
           </p>
         </div>
-        {canReview && (
-          <div className="flex flex-wrap gap-2">
-            <Button variant="danger" size="lg" icon={<XCircle className="h-5 w-5" />} onClick={() => setAction('reject')}>
-              Reject
+        <div className="flex flex-wrap gap-2">
+          {canSendBack && (
+            <Button variant="secondary" size="lg" className="!text-brand-red" icon={<RotateCcw className="h-5 w-5" />} onClick={() => setAction('sendBack')}>
+              Send Back
             </Button>
-            <Button variant="success" size="lg" icon={<CheckCircle2 className="h-5 w-5" />} onClick={() => setAction('approve')}>
-              Approve
+          )}
+          {canForward && (
+            <Button size="lg" icon={<Send className="h-5 w-5" />} onClick={() => setAction('forward')}>
+              Forward to Billing
             </Button>
-          </div>
-        )}
+          )}
+          {canBill && (
+            <Button variant="success" size="lg" icon={<ReceiptText className="h-5 w-5" />} onClick={() => setAction('billed')}>
+              Mark as Billed
+            </Button>
+          )}
+          {canUpload && !showUpload && (
+            <Button size="lg" icon={<Upload className="h-5 w-5" />} onClick={() => setShowUpload(true)}>
+              Upload New Copy
+            </Button>
+          )}
+        </div>
       </div>
 
-      {s.currentVersion > 1 && canReview && <Alert kind="info">This is a re-submission (version {s.currentVersion}). Earlier versions remain available in the document viewer.</Alert>}
-      {s.status === 'REJECTED' && <Alert kind="error" title="Rejected — awaiting corrected document from vendor">{s.adminRemarks}</Alert>}
-      {s.status === 'APPROVED' && (
-        <Alert kind="success" title="Approved">
-          {formatDateTime(s.reviewedAt)}
-          {s.reviewerName && ` by ${s.reviewerName}`}
-          {s.adminRemarks && ` · ${s.adminRemarks}`}
+      {s.status === 'RESUBMISSION_REQUESTED' && (
+        <Alert kind="error" title="Sent back — waiting for a new POD copy">
+          {s.lastRemarks}
+          <p className="mt-1 text-xs opacity-80">
+            {s.lastActionByName} ({s.lastActionByRole ? ROLE_LABELS[s.lastActionByRole] : ''}) · {formatDateTime(s.lastActionAt)}. The vendor or the category team can upload the new copy.
+          </p>
         </Alert>
+      )}
+      {s.status === 'SUBMITTED' && s.currentVersion > 1 && <Alert kind="info">This is a new copy (version {s.currentVersion}). Earlier versions remain available in the document viewer.</Alert>}
+      {s.status === 'FORWARDED_TO_BILLING' && role === 'CATEGORY' && <Alert kind="info">Forwarded to billing on {formatDateTime(s.forwardedAt)}.</Alert>}
+      {s.status === 'BILLED' && <Alert kind="success" title="Billed">Processed by {s.lastActionByName ?? 'billing'} on {formatDateTime(s.billedAt)}.</Alert>}
+
+      {canUpload && showUpload && (
+        <Card className="border-royal-200">
+          <CardHeader title="Upload a new POD copy" icon={<Upload className="h-5 w-5 text-royal-700" />} action={<Button variant="ghost" size="sm" onClick={() => setShowUpload(false)}>Cancel</Button>} />
+          <ReuploadForm
+            staff
+            submission={s}
+            onDone={() => {
+              setShowUpload(false);
+              void reload();
+            }}
+          />
+        </Card>
       )}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">
@@ -74,6 +122,11 @@ export default function SubmissionReviewPage() {
           <Card>
             <CardHeader title="Submission Details" />
             <dl className="grid grid-cols-2 gap-5 p-5 sm:p-6">
+              <DetailItem label="Category">{categoryLabel(s.category)}</DetailItem>
+              <DetailItem label="Uploaded By">
+                {s.uploadedByName}
+                {s.uploadedByRole && <span className="block text-xs font-normal text-slate-500">{ROLE_LABELS[s.uploadedByRole]}</span>}
+              </DetailItem>
               <DetailItem label="PO Number">{s.poNumber}</DetailItem>
               <DetailItem label="Invoice Number">{s.invoiceNumber}</DetailItem>
               <DetailItem label="Delivery Date">{formatDate(s.deliveryDate)}</DetailItem>
@@ -81,15 +134,19 @@ export default function SubmissionReviewPage() {
             </dl>
           </Card>
           <Card>
-            <CardHeader title="Vendor" action={<Link to={`/admin/vendors/${s.vendorId}`} className="link text-sm">View vendor</Link>} />
+            <CardHeader title="Vendor" action={role === 'ADMIN' && <Link to={`/admin/vendors/${s.vendorId}`} className="link text-sm">View vendor</Link>} />
             <dl className="grid grid-cols-2 gap-5 p-5 sm:p-6">
               <DetailItem label="Name">{vendor.name}</DetailItem>
               <DetailItem label="Code">{vendor.code}</DetailItem>
-              <DetailItem label="Contact">{vendor.contactPerson}</DetailItem>
-              <DetailItem label="Mobile">{vendor.mobileNumber}</DetailItem>
-              <div className="col-span-2">
-                <DetailItem label="Email">{vendor.email}</DetailItem>
-              </div>
+              {role !== 'BILLING' && (
+                <>
+                  <DetailItem label="Contact">{vendor.contactPerson}</DetailItem>
+                  <DetailItem label="Mobile">{vendor.mobileNumber}</DetailItem>
+                  <div className="col-span-2">
+                    <DetailItem label="Email">{vendor.email}</DetailItem>
+                  </div>
+                </>
+              )}
             </dl>
           </Card>
           <Card>
@@ -102,29 +159,46 @@ export default function SubmissionReviewPage() {
       </div>
 
       <ConfirmDialog
-        open={action === 'approve'}
+        open={action === 'forward'}
         onClose={() => setAction(null)}
-        title="Approve this POD?"
-        tone="success"
-        confirmLabel="Approve POD"
+        title="Forward to billing?"
+        confirmLabel="Forward to Billing"
         remarks="optional"
-        remarksPlaceholder="Optional note for the vendor"
-        onConfirm={async (remarks) => {
-          await adminService.approveSubmission(s.id, remarks || undefined);
-          toast(`${s.submissionNumber} approved. The vendor has been notified.`);
+        remarksLabel="Note for billing"
+        onConfirm={async (r) => {
+          await adminService.forward(s.id, r);
+          toast(`${s.submissionNumber} forwarded to billing.`);
           void reload();
         }}
       >
         <p className="text-sm text-slate-600">
-          Confirm that the POD for invoice <b>{s.invoiceNumber}</b> is clear, complete, stamped and signed.
+          The billing team will receive POD <b>{s.submissionNumber}</b> for invoice <b>{s.invoiceNumber}</b>.
         </p>
       </ConfirmDialog>
-      <RejectDialog
-        open={action === 'reject'}
+      <ConfirmDialog
+        open={action === 'billed'}
+        onClose={() => setAction(null)}
+        title="Mark as billed?"
+        tone="success"
+        confirmLabel="Mark as Billed"
+        remarks="optional"
+        remarksLabel="Billing note (e.g. document number)"
+        onConfirm={async (r) => {
+          await adminService.markBilled(s.id, r);
+          toast(`${s.submissionNumber} marked as billed.`);
+          void reload();
+        }}
+      >
+        <p className="text-sm text-slate-600">
+          Confirm that billing for invoice <b>{s.invoiceNumber}</b> is complete.
+        </p>
+      </ConfirmDialog>
+      <SendBackDialog
+        open={action === 'sendBack'}
         onClose={() => setAction(null)}
         onConfirm={async (remarks) => {
-          await adminService.rejectSubmission(s.id, remarks);
-          toast(`${s.submissionNumber} rejected. The vendor has been notified with your remarks.`);
+          await adminService.sendBack(s.id, remarks);
+          toast(`${s.submissionNumber} sent back. The vendor and category team have been notified.`);
           void reload();
         }}
       />
@@ -132,7 +206,7 @@ export default function SubmissionReviewPage() {
   );
 }
 
-function RejectDialog({ open, onClose, onConfirm }: { open: boolean; onClose: () => void; onConfirm: (r: string) => Promise<void> }) {
+function SendBackDialog({ open, onClose, onConfirm }: { open: boolean; onClose: () => void; onConfirm: (r: string) => Promise<void> }) {
   const [preset, setPreset] = useState<string[]>([]);
   return (
     <ConfirmDialog
@@ -141,23 +215,22 @@ function RejectDialog({ open, onClose, onConfirm }: { open: boolean; onClose: ()
         setPreset([]);
         onClose();
       }}
-      title="Reject this POD?"
-      description="The vendor will see your remarks and can re-upload a corrected document."
+      title="Send back for a new copy?"
+      description="The vendor and the category team will see your reason. Either of them can upload a new POD copy."
       tone="danger"
-      confirmLabel="Reject POD"
+      confirmLabel="Send Back"
       remarks={preset.length ? 'optional' : 'required'}
-      remarksLabel={preset.length ? 'Additional remarks' : 'Rejection remarks'}
+      remarksLabel={preset.length ? 'Additional remarks' : 'Reason'}
       remarksPlaceholder="Explain what needs to be corrected"
       onConfirm={async (r) => {
-        const text = [...preset, r].filter(Boolean).join('. ');
-        await onConfirm(text);
+        await onConfirm([...preset, r].filter(Boolean).join('. '));
         setPreset([]);
       }}
     >
       <div>
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Common reasons</p>
         <div className="flex flex-wrap gap-2">
-          {REJECTION_REASONS.map((r) => {
+          {SEND_BACK_REASONS.map((r) => {
             const on = preset.includes(r);
             return (
               <button

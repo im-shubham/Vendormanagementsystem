@@ -1,6 +1,9 @@
-export type Role = 'ADMIN' | 'VENDOR';
+export type Role = 'ADMIN' | 'CATEGORY' | 'BILLING' | 'VENDOR';
+export type StaffRole = Exclude<Role, 'VENDOR'>;
 export type VendorAccountStatus = 'NOT_REGISTERED' | 'PENDING_APPROVAL' | 'ACTIVE' | 'REJECTED' | 'DEACTIVATED';
-export type PodStatus = 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED';
+/** SUBMITTED = with category team · FORWARDED_TO_BILLING = with billing · BILLED = final */
+export type PodStatus = 'SUBMITTED' | 'RESUBMISSION_REQUESTED' | 'FORWARDED_TO_BILLING' | 'BILLED';
+export type Category = 'RICE' | 'SUGAR' | 'FLOUR' | 'SPICES' | 'EDIBLE_OILS' | 'PULSES' | 'SALT' | 'GHEE' | 'DRY_FRUITS' | 'CEREALS';
 export type RegistrationStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
 export interface User {
@@ -8,7 +11,9 @@ export interface User {
   role: Role;
   email: string;
   fullName: string | null;
-  vendor: { id: string; name: string; code: string; status: VendorAccountStatus } | null;
+  /** Category team assignments (empty for other roles) */
+  categories: Category[];
+  vendor: { id: string; name: string; code: string; status: VendorAccountStatus; categories: Category[] } | null;
 }
 
 export interface Paginated<T> {
@@ -20,10 +25,10 @@ export interface Paginated<T> {
 
 export interface PodStats {
   total: number;
-  PENDING: number;
-  UNDER_REVIEW: number;
-  APPROVED: number;
-  REJECTED: number;
+  SUBMITTED: number;
+  RESUBMISSION_REQUESTED: number;
+  FORWARDED_TO_BILLING: number;
+  BILLED: number;
 }
 
 export interface Submission {
@@ -32,6 +37,7 @@ export interface Submission {
   vendorId: string;
   vendorName?: string;
   vendorCode?: string;
+  category: Category;
   poNumber: string;
   invoiceNumber: string;
   deliveryDate: string;
@@ -39,9 +45,15 @@ export interface Submission {
   submittedAt: string;
   status: PodStatus;
   currentVersion: number;
-  adminRemarks: string | null;
-  reviewedAt: string | null;
-  reviewerName: string | null;
+  /** Reason given the last time the POD was sent back */
+  lastRemarks: string | null;
+  uploadedByName: string | null;
+  uploadedByRole: Role | null;
+  lastActionByName: string | null;
+  lastActionByRole: Role | null;
+  lastActionAt: string | null;
+  forwardedAt: string | null;
+  billedAt: string | null;
   updatedAt: string;
 }
 
@@ -83,6 +95,7 @@ export interface Vendor {
   mobileNumber: string | null;
   address: string | null;
   accountStatus: VendorAccountStatus;
+  categories: Category[];
   registeredAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -93,7 +106,25 @@ export type VendorInput = Pick<Vendor, 'vendorCode' | 'vendorName' | 'email'> & 
   contactPerson: string;
   mobileNumber: string;
   address: string;
+  categories: Category[];
 };
+
+export interface StaffUser {
+  uid: string;
+  role: StaffRole;
+  fullName: string;
+  email: string;
+  categories: Category[];
+  active: boolean;
+  createdAt: string;
+}
+
+export interface UploadVendor {
+  id: string;
+  vendorName: string;
+  vendorCode: string;
+  categories: Category[];
+}
 
 export interface RegistrationRequest {
   id: string;
@@ -121,10 +152,11 @@ export interface VendorDetail {
 }
 
 export interface AdminDashboard {
-  vendors: { total: number; active: number; pendingApproval: number; notRegistered: number; deactivated: number };
+  vendors: { total: number; active: number; pendingApproval: number; notRegistered: number; deactivated: number } | null;
   pods: PodStats;
   recentSubmissions: Submission[];
   pendingRegistrations: Array<{ id: string; requestedAt: string; vendorId: string; vendorName: string; vendorCode: string; email: string }>;
+  staffCount?: number;
 }
 
 export interface VendorDashboard {
@@ -150,4 +182,5 @@ export interface ListParams {
   to?: string;
   po?: string;
   vendorId?: string;
+  category?: string;
 }

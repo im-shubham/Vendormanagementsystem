@@ -49,7 +49,7 @@ export default function MySubmissionsPage() {
           {data && !error && (
             <div className={loading ? 'opacity-60 transition' : undefined}>
               {data.items.length ? (
-                <SubmissionsTable items={data.items} basePath="/vendor/submissions" showRemarks />
+                <SubmissionsTable items={data.items} basePath="/vendor/submissions" viewer="VENDOR" showRemarks />
               ) : (
                 <EmptyState
                   title={filtered ? 'No matching submissions' : 'No submissions yet'}

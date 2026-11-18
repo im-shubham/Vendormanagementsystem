@@ -6,8 +6,9 @@ import { Alert } from '@/components/ui/Feedback';
 import { adminService } from '@/services/adminService';
 import { AppError } from '@/lib/errors';
 import type { Vendor, VendorInput } from '@/types';
+import { CategoryPicker } from '@/components/ui/CategoryChips';
 
-const empty: VendorInput = { vendorName: '', vendorCode: '', email: '', contactPerson: '', mobileNumber: '', address: '' };
+const empty: VendorInput = { vendorName: '', vendorCode: '', email: '', contactPerson: '', mobileNumber: '', address: '', categories: [] };
 
 function validate(v: VendorInput) {
   const e: Partial<Record<keyof VendorInput, string>> = {};
@@ -17,6 +18,7 @@ function validate(v: VendorInput) {
   if (!v.contactPerson.trim()) e.contactPerson = 'Contact person is required';
   if (!/^\+?[0-9][0-9\s-]{8,16}$/.test(v.mobileNumber.trim())) e.mobileNumber = 'Enter a valid mobile number';
   if (!v.address.trim()) e.address = 'Address is required';
+  if (!v.categories.length) e.categories = 'Select at least one category';
   return e;
 }
 
@@ -38,6 +40,7 @@ export function VendorFormModal({ open, onClose, vendor, onSaved }: { open: bool
             contactPerson: vendor.contactPerson ?? '',
             mobileNumber: vendor.mobileNumber ?? '',
             address: vendor.address ?? '',
+            categories: vendor.categories ?? [],
           }
         : empty,
     );
@@ -45,7 +48,7 @@ export function VendorFormModal({ open, onClose, vendor, onSaved }: { open: bool
     setError(null);
   }, [open, vendor]);
 
-  const set = (k: keyof VendorInput) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const set = (k: Exclude<keyof VendorInput, 'categories'>) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   const submit = async (e?: FormEvent) => {
     e?.preventDefault();
@@ -54,7 +57,15 @@ export function VendorFormModal({ open, onClose, vendor, onSaved }: { open: bool
     if (Object.keys(errs).length) return;
     setSaving(true);
     setError(null);
-    const payload = Object.fromEntries(Object.entries(form).map(([k, v]) => [k, v.trim()])) as VendorInput;
+    const payload: VendorInput = {
+      vendorName: form.vendorName.trim(),
+      vendorCode: form.vendorCode.trim(),
+      email: form.email.trim(),
+      contactPerson: form.contactPerson.trim(),
+      mobileNumber: form.mobileNumber.trim(),
+      address: form.address.trim(),
+      categories: form.categories,
+    };
     try {
       if (vendor) await adminService.updateVendor(vendor.id, payload);
       else await adminService.createVendor(payload);
@@ -107,6 +118,7 @@ export function VendorFormModal({ open, onClose, vendor, onSaved }: { open: bool
           <TextField label="Mobile Number" required type="tel" value={form.mobileNumber} onChange={set('mobileNumber')} error={errors.mobileNumber} placeholder="+91 98XXX XXXXX" />
         </div>
         <TextArea label="Company Address" required rows={3} value={form.address} onChange={set('address')} error={errors.address} maxLength={500} />
+        <CategoryPicker required label="Categories supplied" value={form.categories} onChange={(c) => setForm((f) => ({ ...f, categories: c }))} error={errors.categories} />
         <button type="submit" className="hidden" />
       </form>
     </Modal>

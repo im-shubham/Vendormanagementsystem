@@ -3,7 +3,23 @@
 A web application that moves Proof of Delivery (POD) handling for **Reliance Consumer Products Limited (RCPL)** off WhatsApp and email and into one system you can track. It runs entirely on **Firebase** (Blaze plan).
 
 * **Vendor Portal**: first-time account activation, login, password reset, dashboard, POD upload, submission history, rejection remarks, re-upload with version history, and real-time in-app notifications.
-* **Admin Portal**: dashboard, vendor master (create, read, update, deactivate), registration approvals, POD verification (preview, download, approve, reject with mandatory remarks).
+* **Staff Portal** (one login page, content depends on role):
+  * **Admin**: everything below, plus the vendor master, vendor registration approvals and **Team & Access** (create Category/Billing/Admin logins).
+  * **Category team** (assigned to one or more of the 10 staples categories): sees only its categories' PODs, **uploads PODs on a vendor's behalf** (e.g. received on WhatsApp or email), **forwards to billing** or **sends back** for a new copy.
+  * **Billing team**: sees PODs forwarded to billing (all categories), **marks them billed** or sends back.
+
+**Categories:** Rice, Sugar, Flour, Spices, Edible Oils, Pulses, Salt, Ghee, Dry Fruits, Cereals. A vendor can supply several categories and picks one per POD.
+
+**POD lifecycle (no approve/reject):**
+```
+Vendor or Category uploads ─► WITH CATEGORY TEAM ─(Forward)─► WITH BILLING ─(Mark billed)─► BILLED
+                                      │                              │
+                                  (Send back)                   (Send back)
+                                      ▼                              ▼
+                              RE-UPLOAD REQUESTED ◄──────────────────┘
+                                      │  vendor OR category uploads a new copy (v2, v3…)
+                                      └──────────────► WITH CATEGORY TEAM
+```
 
 > MVP scope: approval is a manual decision by an admin. OCR, AI image checks, reminders and SAP integration are deliberately left out. The code is modular so they can be added later (see [Future phases](#future-phases)).
 
@@ -14,7 +30,7 @@ A web application that moves Proof of Delivery (POD) handling for **Reliance Con
 | Layer | Technology |
 |---|---|
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS, Lucide icons, React Router, Firebase Web SDK |
-| Auth | **Firebase Authentication** (email + password); roles are **custom claims** set only by the backend |
+| Auth | **Firebase Authentication** (email + password); roles (`ADMIN`, `CATEGORY`, `BILLING`, `VENDOR`) are **custom claims** set only by the backend; category assignments live on the user profile |
 | Database | **Cloud Firestore**, protected by `firestore.rules` |
 | Files | **Cloud Storage for Firebase**, private, protected by `storage.rules` |
 | Backend | **Cloud Functions for Firebase** (2nd gen, callable, Node 22, region `asia-south1`) |
@@ -63,10 +79,10 @@ Browser (React)
 
 | Collection | Document ID | Key fields | Written by |
 |---|---|---|---|
-| `vendors` | auto | vendorCode (upper-case), vendorName, email (lower-case), contactPerson, mobileNumber, address, **accountStatus** (`NOT_REGISTERED` · `PENDING_APPROVAL` · `ACTIVE` · `REJECTED` · `DEACTIVATED`), authUid, registeredAt, createdAt, updatedAt, searchKeywords | Functions |
-| `userProfiles` | **Auth UID** | role (`ADMIN`/`VENDOR`), vendorId, fullName, email, createdAt | Functions / admin script |
+| `vendors` | auto | vendorCode (upper-case), vendorName, email (lower-case), contactPerson, mobileNumber, address, **categories**, **accountStatus** (`NOT_REGISTERED` · `PENDING_APPROVAL` · `ACTIVE` · `REJECTED` · `DEACTIVATED`), authUid, registeredAt, createdAt, updatedAt, searchKeywords | Functions |
+| `userProfiles` | **Auth UID** | role (`ADMIN`/`CATEGORY`/`BILLING`/`VENDOR`), vendorId, categories, active, fullName, email, createdAt | Functions / admin script |
 | `vendorRegistrationRequests` | auto | vendorId, vendor snapshot, approvalStatus, requestedAt, reviewedBy/Name/At, remarks | Functions |
-| `podSubmissions` | auto (created by the client before upload) | **submissionNumber** (`POD-10001`…), vendorId, vendorName/Code, poNumber, invoiceNumber, deliveryDate (`YYYY-MM-DD`), deliveryReference, **currentStatus**, currentVersion, adminRemarks, reviewedBy/Name/At, submittedAt, updatedAt, searchKeywords | Functions |
+| `podSubmissions` | auto (created by the client before upload) | **submissionNumber** (`POD-10001`…), vendorId, vendorName/Code, **category**, poNumber, invoiceNumber, deliveryDate (`YYYY-MM-DD`), deliveryReference, uploadedBy/Name/Role, **currentStatus** (`SUBMITTED` · `RESUBMISSION_REQUESTED` · `FORWARDED_TO_BILLING` · `BILLED`), currentVersion, **billingVisible**, lastRemarks, lastActionBy/Name/Role/At, forwardedAt, billedAt, submittedAt, updatedAt, searchKeywords | Functions |
 | `podDocuments` | auto | submissionId, vendorId, documentType (`POD`/`SUPPORTING_PHOTO`), fileName, **storagePath**, contentType, size, versionNumber, uploadedBy, uploadedAt | Functions |
 | `podStatusHistory` | auto | submissionId, vendorId, previousStatus, newStatus, remarks, versionNumber, updatedBy/Name/Role, updatedAt | Functions |
 | `notifications` | auto | userId, title, message, link, isRead, createdAt | Functions (client may only set `isRead`) |
@@ -151,6 +167,9 @@ npm run dev:emulator          # http://localhost:5173   (Emulator UI: http://127
 | Portal | Credentials |
 |---|---|
 | Admin | `admin@rcpl.demo` / `Admin@12345` |
+| Category team (Rice, Pulses) | `category.rice@rcpl.demo` / `Category@123` |
+| Category team (Edible Oils, Ghee) | `category.oils@rcpl.demo` / `Category@123` |
+| Billing team | `billing@rcpl.demo` / `Billing@123` |
 | Vendor | Use **First-Time Login** with `abcfoods@example.com` + vendor code `V1001`, then approve it in the Admin Portal |
 
 Other seeded vendors: `V1002 xyzagri@example.com`, `V1003 mnoexports@example.com`, `V1004 globalfoods@example.com`.
@@ -217,6 +236,16 @@ It also checks:
    npm run create-admin -w functions -- --project <project-id> --email admin@rcpl.com --password 'Str0ng@Pass' --name "Admin User"
    ```
 9. **Password-reset emails**: Authentication → Templates → Password reset. Optionally set **Customize action URL** to `https://<your-domain>/reset-password` so users reset inside the branded portal (the default Firebase page also works). Configure a custom SMTP sender / domain for RCPL.
+
+### Upgrading an existing project to the category/billing workflow
+After deploying this version to a project that already has test data:
+```bash
+cd functions
+# (use your service-account key via GOOGLE_APPLICATION_CREDENTIALS, as for create-admin)
+npx tsx scripts/migrate-v3.ts --project <project-id> --default-category RICE --dry-run   # preview
+npx tsx scripts/migrate-v3.ts --project <project-id> --default-category RICE             # apply
+```
+Then open **Admin → Vendors** and assign categories to every vendor, and create Category/Billing users in **Admin → Team & Access**.
 
 ### Production checklist
 - [ ] Turn on **App Check** (reCAPTCHA Enterprise) and enforce it for Firestore, Storage and Functions.

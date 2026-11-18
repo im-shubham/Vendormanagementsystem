@@ -1,31 +1,40 @@
 import { Link } from 'react-router-dom';
 import { ArrowRight, RotateCcw } from 'lucide-react';
-import type { Submission } from '@/types';
+import type { Role, Submission } from '@/types';
+import { categoryLabel } from '@/utils/constants';
 import { formatDate, formatDateTime } from '@/utils/format';
 import { PodStatusBadge } from '../ui/StatusBadge';
 
 interface Props {
   items: Submission[];
   basePath: string; // '/vendor/submissions' | '/admin/submissions'
+  viewer: Role;
   showVendor?: boolean;
   showRemarks?: boolean;
-  admin?: boolean;
   /** Dashboard widget: PO/Invoice merged, no delivery-date column. */
   compact?: boolean;
 }
 
-function ActionLink({ s, basePath, admin }: { s: Submission; basePath: string; admin?: boolean }) {
+/** Whether `viewer` has the next action on this submission. */
+export function needsAction(s: Submission, viewer: Role) {
+  if (viewer === 'VENDOR') return s.status === 'RESUBMISSION_REQUESTED';
+  if (viewer === 'CATEGORY') return s.status === 'SUBMITTED' || s.status === 'RESUBMISSION_REQUESTED';
+  if (viewer === 'BILLING') return s.status === 'FORWARDED_TO_BILLING';
+  return s.status === 'SUBMITTED' || s.status === 'FORWARDED_TO_BILLING';
+}
+
+function ActionLink({ s, basePath, viewer }: { s: Submission; basePath: string; viewer: Role }) {
   const to = `${basePath}/${s.id}`;
-  if (admin && s.status === 'UNDER_REVIEW')
-    return (
-      <Link to={to} className="inline-flex items-center gap-1 rounded-lg bg-royal-800 px-3 py-1.5 text-sm font-semibold text-white hover:bg-royal-700">
-        Review
-      </Link>
-    );
-  if (!admin && s.status === 'REJECTED')
+  if (viewer === 'VENDOR' && s.status === 'RESUBMISSION_REQUESTED')
     return (
       <Link to={`${to}?reupload=1`} className="inline-flex items-center gap-1 rounded-lg bg-brand-red px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-red-dark">
         <RotateCcw className="h-3.5 w-3.5" /> Re-upload
+      </Link>
+    );
+  if (viewer !== 'VENDOR' && needsAction(s, viewer))
+    return (
+      <Link to={to} className="inline-flex items-center gap-1 rounded-lg bg-royal-800 px-3 py-1.5 text-sm font-semibold text-white hover:bg-royal-700">
+        {s.status === 'RESUBMISSION_REQUESTED' ? 'Upload copy' : 'Review'}
       </Link>
     );
   return (
@@ -35,7 +44,7 @@ function ActionLink({ s, basePath, admin }: { s: Submission; basePath: string; a
   );
 }
 
-export function SubmissionsTable({ items, basePath, showVendor, showRemarks, admin, compact }: Props) {
+export function SubmissionsTable({ items, basePath, viewer, showVendor, showRemarks, compact }: Props) {
   return (
     <>
       {/* Desktop / tablet */}
@@ -45,6 +54,7 @@ export function SubmissionsTable({ items, basePath, showVendor, showRemarks, adm
             <tr className="border-y border-slate-100">
               <th className="th">Submission ID</th>
               {showVendor && <th className="th">Vendor</th>}
+              <th className="th">Category</th>
               {compact ? (
                 <th className="th">PO / Invoice</th>
               ) : (
@@ -56,7 +66,7 @@ export function SubmissionsTable({ items, basePath, showVendor, showRemarks, adm
               )}
               <th className="th">Submitted On</th>
               <th className="th">Status</th>
-              {showRemarks && <th className="th">Admin Remarks</th>}
+              {showRemarks && <th className="th">Remarks</th>}
               <th className="th text-right">Action</th>
             </tr>
           </thead>
@@ -70,11 +80,14 @@ export function SubmissionsTable({ items, basePath, showVendor, showRemarks, adm
                   {s.currentVersion > 1 && <span className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500">v{s.currentVersion}</span>}
                 </td>
                 {showVendor && (
-                  <td className="td">
-                    <span className="font-medium text-slate-800">{s.vendorName}</span>
+                  <td className="td max-w-[220px]">
+                    <span className="block truncate font-medium text-slate-800" title={s.vendorName}>{s.vendorName}</span>
                     <span className="block text-xs text-slate-400">{s.vendorCode}</span>
                   </td>
                 )}
+                <td className="td">
+                  <span className="rounded-md bg-navy-50 px-2 py-0.5 text-xs font-semibold text-navy-700">{categoryLabel(s.category)}</span>
+                </td>
                 {compact ? (
                   <td className="td">
                     <span className="font-medium text-slate-800">{s.poNumber}</span>
@@ -93,11 +106,11 @@ export function SubmissionsTable({ items, basePath, showVendor, showRemarks, adm
                 </td>
                 {showRemarks && (
                   <td className="td max-w-[240px] whitespace-normal text-sm">
-                    {s.adminRemarks ? <span className={s.status === 'REJECTED' ? 'text-red-700' : 'text-slate-600'}>{s.adminRemarks}</span> : <span className="text-slate-300">—</span>}
+                    {s.status === 'RESUBMISSION_REQUESTED' && s.lastRemarks ? <span className="text-red-700">{s.lastRemarks}</span> : <span className="text-slate-300">—</span>}
                   </td>
                 )}
                 <td className="td text-right">
-                  <ActionLink s={s} basePath={basePath} admin={admin} />
+                  <ActionLink s={s} basePath={basePath} viewer={viewer} />
                 </td>
               </tr>
             ))}
@@ -116,7 +129,7 @@ export function SubmissionsTable({ items, basePath, showVendor, showRemarks, adm
                 </Link>
                 {showVendor && <p className="truncate text-sm font-medium text-slate-700">{s.vendorName}</p>}
                 <p className="mt-0.5 text-sm text-slate-600">
-                  {s.poNumber} · {s.invoiceNumber}
+                  {categoryLabel(s.category)} · {s.poNumber} · {s.invoiceNumber}
                 </p>
                 <p className="text-xs text-slate-400">
                   Delivered {formatDate(s.deliveryDate)} · Submitted {formatDate(s.submittedAt)}
@@ -124,9 +137,9 @@ export function SubmissionsTable({ items, basePath, showVendor, showRemarks, adm
               </div>
               <PodStatusBadge status={s.status} />
             </div>
-            {showRemarks && s.adminRemarks && s.status === 'REJECTED' && <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{s.adminRemarks}</p>}
+            {showRemarks && s.lastRemarks && s.status === 'RESUBMISSION_REQUESTED' && <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{s.lastRemarks}</p>}
             <div className="mt-3 flex justify-end">
-              <ActionLink s={s} basePath={basePath} admin={admin} />
+              <ActionLink s={s} basePath={basePath} viewer={viewer} />
             </div>
           </li>
         ))}

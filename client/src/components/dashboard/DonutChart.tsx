@@ -2,10 +2,10 @@ import type { PodStats } from '@/types';
 import { pct } from '@/utils/format';
 
 const SEGMENTS: Array<{ key: keyof Omit<PodStats, 'total'>; label: string; color: string }> = [
-  { key: 'APPROVED', label: 'Approved', color: '#16a34a' },
-  { key: 'UNDER_REVIEW', label: 'Under Review', color: '#f5b400' },
-  { key: 'REJECTED', label: 'Rejected', color: '#e31b23' },
-  { key: 'PENDING', label: 'Pending', color: '#cbd5e1' },
+  { key: 'SUBMITTED', label: 'With Category Team', color: '#f5b400' },
+  { key: 'FORWARDED_TO_BILLING', label: 'With Billing', color: '#1f43c9' },
+  { key: 'BILLED', label: 'Billed', color: '#16a34a' },
+  { key: 'RESUBMISSION_REQUESTED', label: 'Re-upload Requested', color: '#e31b23' },
 ];
 
 /** POD status breakdown donut (pure SVG; values come from the API). */
@@ -53,9 +53,9 @@ export function DonutChart({ stats, centerLabel = 'Submissions' }: { stats: PodS
         {SEGMENTS.map((s) => (
           <li key={s.key} className="flex items-center gap-3 text-[15px] text-slate-700">
             <span className="h-3.5 w-3.5 shrink-0 rounded-full" style={{ background: s.color }} />
-            <span className="flex-1 whitespace-nowrap pr-2">{s.label}</span>
+            <span className="min-w-0 flex-1 pr-2">{s.label}</span>
             <span className="font-semibold tabular-nums text-slate-900">{stats[s.key]}</span>
-            <span className="w-12 text-right text-sm tabular-nums text-slate-500">({pct(stats[s.key], stats.total)}%)</span>
+            <span className="w-11 shrink-0 text-right text-sm tabular-nums text-slate-500">({pct(stats[s.key], stats.total)}%)</span>
           </li>
         ))}
       </ul>

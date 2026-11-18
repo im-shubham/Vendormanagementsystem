@@ -109,7 +109,7 @@ export default function VendorLoginPage() {
       <p className="mt-8 text-center text-sm text-slate-500">
         RCPL staff?{' '}
         <Link to="/admin/login" className="link">
-          Admin login
+          Staff login
         </Link>
       </p>
     </AuthLayout>

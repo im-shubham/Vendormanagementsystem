@@ -1,51 +1,18 @@
-import { collection, doc, getDoc, getDocs, orderBy, query, where, type QueryConstraint, limit } from 'firebase/firestore';
-import { ref, uploadBytesResumable } from 'firebase/storage';
-import { callFn, db, storage } from '@/lib/firebase';
+import { collection, doc, getDoc, getDocs, limit, orderBy, query, where, type QueryConstraint } from 'firebase/firestore';
+import { callFn, db } from '@/lib/firebase';
 import { AppError, toAppError } from '@/lib/errors';
 import { count, endOfDay, fetchPage, searchTerm, startOfDay, type Cursor, type Page } from '@/lib/firestore';
 import { toDocument, toHistory, toSubmission } from './mappers';
-import type { ListParams, PodStatus, Submission, SubmissionDetail, VendorDashboard } from '@/types';
+import { uploadVersion, type UploadFiles } from './uploads';
+import type { Category, ListParams, PodStatus, Submission, SubmissionDetail, VendorDashboard } from '@/types';
 
-/** Firestore/Storage reads below are authorised by security rules; writes go through Cloud Functions. */
+/** Vendor portal. Reads are authorised by security rules; writes go through Cloud Functions. */
 
-const STATUSES: PodStatus[] = ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED'];
+export const POD_STATUSES: PodStatus[] = ['SUBMITTED', 'RESUBMISSION_REQUESTED', 'FORWARDED_TO_BILLING', 'BILLED'];
 const createFn = callFn<Record<string, unknown>, { submissionId: string; submissionNumber: string; status: string }>('createPodSubmission');
 const resubmitFn = callFn<Record<string, unknown>, { submissionId: string; version: number; status: string }>('resubmitPodSubmission');
 
-export interface UploadFiles {
-  podDocument: File;
-  supportingPhoto?: File | null;
-}
-
-const ext = (f: File) => (f.name.split('.').pop() ?? '').toLowerCase();
-
-/** Upload to pod-documents/{vendorId}/{submissionId}/version-{n}/ (storage.rules enforce ownership). */
-async function uploadVersion(vendorId: string, submissionId: string, version: number, files: UploadFiles, onProgress?: (pct: number) => void) {
-  const list: Array<[string, File]> = [[`pod-document.${ext(files.podDocument)}`, files.podDocument]];
-  if (files.supportingPhoto) list.push([`supporting-photo.${ext(files.supportingPhoto)}`, files.supportingPhoto]);
-  const total = list.reduce((s, [, f]) => s + f.size, 0);
-  const done = new Map<string, number>();
-  await Promise.all(
-    list.map(
-      ([name, file]) =>
-        new Promise<void>((resolve, reject) => {
-          const task = uploadBytesResumable(ref(storage, `pod-documents/${vendorId}/${submissionId}/version-${version}/${name}`), file, {
-            contentType: file.type,
-            customMetadata: { originalName: file.name.slice(0, 150) },
-          });
-          task.on(
-            'state_changed',
-            (s) => {
-              done.set(name, s.bytesTransferred);
-              onProgress?.(Math.round(([...done.values()].reduce((a, b) => a + b, 0) / total) * 100));
-            },
-            reject,
-            () => resolve(),
-          );
-        }),
-    ),
-  );
-}
+export type { UploadFiles };
 
 function listConstraints(vendorId: string, p: ListParams): QueryConstraint[] {
   const c: QueryConstraint[] = [where('vendorId', '==', vendorId)];
@@ -63,10 +30,10 @@ export const vendorService = {
       const col = collection(db, 'podSubmissions');
       const mine = where('vendorId', '==', vendorId);
       const [counts, recent] = await Promise.all([
-        Promise.all(STATUSES.map((s) => count(query(col, mine, where('currentStatus', '==', s))))),
+        Promise.all(POD_STATUSES.map((s) => count(query(col, mine, where('currentStatus', '==', s))))),
         getDocs(query(col, mine, orderBy('submittedAt', 'desc'), limit(5))),
       ]);
-      const stats = { PENDING: counts[0], UNDER_REVIEW: counts[1], APPROVED: counts[2], REJECTED: counts[3], total: counts.reduce((a, b) => a + b, 0) };
+      const stats = { SUBMITTED: counts[0], RESUBMISSION_REQUESTED: counts[1], FORWARDED_TO_BILLING: counts[2], BILLED: counts[3], total: counts.reduce((a, b) => a + b, 0) };
       return { stats, recentSubmissions: recent.docs.map(toSubmission) };
     } catch (e) {
       throw toAppError(e, 'Could not load the dashboard.');
@@ -102,7 +69,7 @@ export const vendorService = {
   /** 1) new submission id 2) upload files 3) Cloud Function validates + creates the record. */
   async createSubmission(
     vendorId: string,
-    fields: { poNumber: string; invoiceNumber: string; deliveryDate: string; deliveryReference?: string },
+    fields: { category: Category; poNumber: string; invoiceNumber: string; deliveryDate: string; deliveryReference?: string },
     files: UploadFiles,
     onProgress?: (pct: number) => void,
   ) {
@@ -115,15 +82,15 @@ export const vendorService = {
     }
   },
 
+  /** Upload a new copy after the POD was sent back (vendor, category team or admin). */
   async reupload(
-    vendorId: string,
     submission: Submission,
     edits: { poNumber?: string; invoiceNumber?: string; deliveryDate?: string; note?: string },
     files: UploadFiles,
     onProgress?: (pct: number) => void,
   ) {
     try {
-      await uploadVersion(vendorId, submission.id, submission.currentVersion + 1, files, onProgress);
+      await uploadVersion(submission.vendorId, submission.id, submission.currentVersion + 1, files, onProgress);
       return await resubmitFn({ submissionId: submission.id, ...edits });
     } catch (e) {
       throw toAppError(e, 'Upload failed. Please try again.');

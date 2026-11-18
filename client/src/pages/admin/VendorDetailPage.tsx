@@ -10,6 +10,7 @@ import { Alert, EmptyState, ErrorState, PageLoader } from '@/components/ui/Feedb
 import { AccountStatusBadge, PodStatusBadge, RegistrationStatusBadge } from '@/components/ui/StatusBadge';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { formatDate, formatDateTime } from '@/utils/format';
+import { CategoryTags } from '@/components/ui/CategoryChips';
 import { VendorFormModal } from './VendorFormModal';
 
 type Action = 'approve' | 'reject' | 'deactivate' | 'reactivate' | null;
@@ -86,6 +87,9 @@ export default function VendorDetailPage() {
         <Card>
           <CardHeader title="Vendor Details" />
           <dl className="grid gap-5 p-5 sm:grid-cols-2 sm:p-6">
+            <div className="sm:col-span-2">
+              <DetailItem label="Categories"><CategoryTags categories={v.categories} max={10} /></DetailItem>
+            </div>
             <DetailItem label="Vendor Code">{v.vendorCode}</DetailItem>
             <DetailItem label="Registered Email">{v.email}</DetailItem>
             <DetailItem label="Contact Person">{v.contactPerson}</DetailItem>
@@ -100,10 +104,10 @@ export default function VendorDetailPage() {
         <div className="space-y-6">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
-              ['Total', stats.total, 'text-navy-900'],
-              ['Approved', stats.APPROVED, 'text-emerald-600'],
-              ['Under Review', stats.UNDER_REVIEW, 'text-amber-600'],
-              ['Rejected', stats.REJECTED, 'text-brand-red'],
+              ['With Category', stats.SUBMITTED, 'text-amber-600'],
+              ['With Billing', stats.FORWARDED_TO_BILLING, 'text-royal-700'],
+              ['Billed', stats.BILLED, 'text-emerald-600'],
+              ['Re-upload Req.', stats.RESUBMISSION_REQUESTED, 'text-brand-red'],
             ].map(([label, n, cls]) => (
               <div key={label as string} className="card px-4 py-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>

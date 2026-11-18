@@ -499,6 +499,68 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "podSubmissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "billingVisible",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "category",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "searchKeywords",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "submittedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "podSubmissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "billingVisible",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "category",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "searchKeywords",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "currentStatus",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "submittedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "userProfiles",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "role",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "categories",
+          "arrayConfig": "CONTAINS"
+        }
+      ]
     }
   ],
   "fieldOverrides": []

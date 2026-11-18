@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
-import { ArrowRight, CheckCircle2, Clock, FileText, Hourglass, UploadCloud, XCircle } from 'lucide-react';
+import { ArrowRight, FileText, Hourglass, ReceiptText, RotateCcw, Send, UploadCloud } from 'lucide-react';
+import { CategoryTags } from '@/components/ui/CategoryChips';
 import { useAuth } from '@/context/AuthContext';
 import { useAsync } from '@/hooks/useAsync';
 import { vendorService } from '@/services/vendorService';
@@ -32,26 +33,28 @@ export default function VendorDashboardPage() {
             Welcome, {user?.vendor?.name} <span aria-hidden>👋</span>
           </h1>
           <p className="mt-1.5 text-slate-600">Reliance Consumer Products Limited – Vendor Portal</p>
-          <p className="mt-1 text-sm text-slate-400">Vendor code: {user?.vendor?.code}</p>
+          <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-400">
+            Vendor code: {user?.vendor?.code} <CategoryTags categories={user?.vendor?.categories ?? []} max={5} />
+          </p>
         </div>
       </section>
 
-      {stats.REJECTED > 0 && (
-        <Alert kind="warning" title={`${stats.REJECTED} POD ${stats.REJECTED === 1 ? 'submission needs' : 'submissions need'} your attention`}>
-          Review the rejection remarks and re-upload the corrected document.{' '}
-          <Link to="/vendor/submissions?status=REJECTED" className="font-semibold underline">
-            View rejected PODs
+      {stats.RESUBMISSION_REQUESTED > 0 && (
+        <Alert kind="warning" title={`RCPL has requested a new copy for ${stats.RESUBMISSION_REQUESTED} POD${stats.RESUBMISSION_REQUESTED === 1 ? '' : 's'}`}>
+          Check the reason and upload a corrected copy.{' '}
+          <Link to="/vendor/submissions?status=RESUBMISSION_REQUESTED" className="font-semibold underline">
+            View requests
           </Link>
         </Alert>
       )}
 
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <KpiCard label="Total Deliveries" value={stats.total} tone="blue" icon={<FileText className="h-7 w-7" />} to="/vendor/submissions" />
-        <KpiCard label="POD Approved" value={stats.APPROVED} tone="green" icon={<CheckCircle2 className="h-7 w-7" />} to="/vendor/submissions?status=APPROVED" />
-        <KpiCard label="Under Review" value={stats.UNDER_REVIEW} tone="amber" icon={<Hourglass className="h-7 w-7" />} to="/vendor/submissions?status=UNDER_REVIEW" />
-        <KpiCard label="Rejected" value={stats.REJECTED} tone="red" icon={<XCircle className="h-7 w-7" />} to="/vendor/submissions?status=REJECTED" />
-        <KpiCard label="Pending POD" value={stats.PENDING} tone="slate" icon={<Clock className="h-7 w-7" />} to="/vendor/submissions?status=PENDING" />
+        <KpiCard label="Total PODs" value={stats.total} tone="blue" icon={<FileText className="h-7 w-7" />} to="/vendor/submissions" />
+        <KpiCard label="With Category Team" value={stats.SUBMITTED} tone="amber" icon={<Hourglass className="h-7 w-7" />} to="/vendor/submissions?status=SUBMITTED" />
+        <KpiCard label="With Billing" value={stats.FORWARDED_TO_BILLING} tone="violet" icon={<Send className="h-7 w-7" />} to="/vendor/submissions?status=FORWARDED_TO_BILLING" />
+        <KpiCard label="Billed" value={stats.BILLED} tone="green" icon={<ReceiptText className="h-7 w-7" />} to="/vendor/submissions?status=BILLED" />
+        <KpiCard label="Re-upload Requested" value={stats.RESUBMISSION_REQUESTED} tone="red" icon={<RotateCcw className="h-7 w-7" />} to="/vendor/submissions?status=RESUBMISSION_REQUESTED" />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
@@ -68,7 +71,7 @@ export default function VendorDashboardPage() {
         <Card>
           <CardHeader title="POD Submission Status" />
           <div className="px-5 pb-6 pt-5 sm:px-6">
-            <DonutChart stats={stats} centerLabel="Deliveries" />
+            <DonutChart stats={stats} centerLabel="PODs" />
           </div>
         </Card>
       </div>
@@ -78,7 +81,7 @@ export default function VendorDashboardPage() {
           <CardHeader title="Recent Submissions" action={recentSubmissions.length > 0 && <ViewAllLink to="/vendor/submissions" />} />
           <div className="mt-4">
             {recentSubmissions.length ? (
-              <SubmissionsTable compact items={recentSubmissions} basePath="/vendor/submissions" />
+              <SubmissionsTable compact items={recentSubmissions} basePath="/vendor/submissions" viewer="VENDOR" />
             ) : (
               <EmptyState
                 title="No submissions yet"

@@ -12,6 +12,8 @@ import { Pagination } from '@/components/ui/Pagination';
 import { ACCOUNT_STATUS_OPTIONS, AccountStatusBadge } from '@/components/ui/StatusBadge';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { formatDate } from '@/utils/format';
+import { CategoryTags } from '@/components/ui/CategoryChips';
+import { CATEGORIES } from '@/utils/constants';
 import type { Vendor } from '@/types';
 import { VendorFormModal } from './VendorFormModal';
 
@@ -23,12 +25,13 @@ export default function VendorsPage() {
   const [params, setParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState(params.get('status') ?? '');
+  const [category, setCategory] = useState('');
   const [formOpen, setFormOpen] = useState(params.get('new') === '1');
   const [editing, setEditing] = useState<Vendor | null>(null);
   const [toggling, setToggling] = useState<Vendor | null>(null);
   const q = useDebounce(search);
 
-  const { data, error, loading, reload, page, setPage } = usePagedQuery((after) => adminService.listVendors({ pageSize: PAGE_SIZE, search: q, status }, after), [q, status]);
+  const { data, error, loading, reload, page, setPage } = usePagedQuery((after) => adminService.listVendors({ pageSize: PAGE_SIZE, search: q, status, category }, after), [q, status, category]);
 
   const openCreate = () => {
     setEditing(null);
@@ -48,7 +51,7 @@ export default function VendorsPage() {
         action={<Button icon={<Plus className="h-5 w-5" />} onClick={openCreate}>Add Vendor</Button>}
       />
       <Card className="overflow-hidden">
-        <div className="grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_220px] sm:px-6">
+        <div className="grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_200px_200px] sm:px-6">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by vendor name, code or email" className="field pl-10" aria-label="Search vendors" />
@@ -68,6 +71,14 @@ export default function VendorsPage() {
               </option>
             ))}
           </select>
+          <select value={category} onChange={(e) => setCategory(e.target.value)} className="field" aria-label="Category">
+            <option value="">All categories</option>
+            {CATEGORIES.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         {loading && !data && <Spinner className="py-16" label="Loading vendors…" />}
@@ -84,6 +95,7 @@ export default function VendorsPage() {
                       <tr className="border-y border-slate-100">
                         <th className="th">Vendor Code</th>
                         <th className="th">Vendor Name</th>
+                        <th className="th">Categories</th>
                         <th className="th">Email</th>
                         <th className="th">Contact Number</th>
                         <th className="th">Registration Date</th>
@@ -101,7 +113,8 @@ export default function VendorsPage() {
                             </Link>
                             <span className="block text-xs text-slate-400">{v.contactPerson}</span>
                           </td>
-                          <td className="td max-w-[220px] truncate" title={v.email}>{v.email}</td>
+                          <td className="td whitespace-normal"><CategoryTags categories={v.categories} max={2} /></td>
+                          <td className="td max-w-[200px] truncate" title={v.email}>{v.email}</td>
                           <td className="td">{v.mobileNumber}</td>
                           <td className="td">{formatDate(v.registeredAt)}</td>
                           <td className="td">

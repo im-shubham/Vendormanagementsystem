@@ -5,9 +5,10 @@ import { SUPPORT_EMAIL } from '@/utils/constants';
 
 const FAQ = [
   ['Which file formats can I upload?', 'PDF, JPG, JPEG and PNG files up to 10 MB. Combine multi-page PODs into a single PDF where possible.'],
-  ['How long does verification take?', 'RCPL reviews PODs on working days. You will receive an in-app notification as soon as your POD is approved or rejected.'],
-  ['My POD was rejected. What should I do?', 'Open the submission from My Submissions, read the rejection remarks and use "Re-upload" to submit the corrected document. Previous versions are kept for audit.'],
-  ['Can I submit the same invoice twice?', 'No. Each invoice can only be submitted once. If a submission was rejected, re-upload against the same submission.'],
+  ['What happens after I upload?', 'Your POD goes to the RCPL category team (e.g. Rice, Sugar). They forward it to the billing team, and you can follow every step in My Submissions.'],
+  ['RCPL asked for a new copy. What should I do?', 'Open the submission, read the reason and use "Upload New Copy". Previous versions are kept for audit.'],
+  ['Can I submit the same invoice twice?', 'No. Each invoice can only be submitted once. If a POD was sent back, upload the new copy against the same submission.'],
+  ['I sent the POD on WhatsApp / email. Do I upload again?', 'Not necessarily — the category team can upload it for you, and it will appear in your portal.'],
   ['I forgot my password.', 'Use "Forgot Password" on the login page to receive a reset link on your registered email.'],
 ];
 

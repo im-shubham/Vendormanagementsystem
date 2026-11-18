@@ -1,7 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from '@/context/AuthContext';
 import { ToastProvider } from '@/context/ToastContext';
-import { ProtectedRoute } from '@/components/layout/ProtectedRoute';
+import { ProtectedRoute, RoleGate } from '@/components/layout/ProtectedRoute';
 import { PortalLayout } from '@/layouts/PortalLayout';
 
 import VendorLoginPage from '@/pages/auth/VendorLoginPage';
@@ -24,6 +24,8 @@ import VendorDetailPage from '@/pages/admin/VendorDetailPage';
 import RegistrationsPage from '@/pages/admin/RegistrationsPage';
 import AdminSubmissionsPage from '@/pages/admin/AdminSubmissionsPage';
 import SubmissionReviewPage from '@/pages/admin/SubmissionReviewPage';
+import StaffUploadPage from '@/pages/admin/StaffUploadPage';
+import TeamPage from '@/pages/admin/TeamPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 
 export default function App() {
@@ -43,7 +45,7 @@ export default function App() {
             <Route
               path="/vendor"
               element={
-                <ProtectedRoute role="VENDOR">
+                <ProtectedRoute roles={['VENDOR']}>
                   <PortalLayout portal="vendor" />
                 </ProtectedRoute>
               }
@@ -59,15 +61,17 @@ export default function App() {
             <Route
               path="/admin"
               element={
-                <ProtectedRoute role="ADMIN">
+                <ProtectedRoute roles={['ADMIN', 'CATEGORY', 'BILLING']}>
                   <PortalLayout portal="admin" />
                 </ProtectedRoute>
               }
             >
               <Route index element={<AdminDashboardPage />} />
-              <Route path="vendors" element={<VendorsPage />} />
-              <Route path="vendors/:id" element={<VendorDetailPage />} />
-              <Route path="registrations" element={<RegistrationsPage />} />
+              <Route path="vendors" element={<RoleGate roles={['ADMIN']}><VendorsPage /></RoleGate>} />
+              <Route path="vendors/:id" element={<RoleGate roles={['ADMIN']}><VendorDetailPage /></RoleGate>} />
+              <Route path="registrations" element={<RoleGate roles={['ADMIN']}><RegistrationsPage /></RoleGate>} />
+              <Route path="team" element={<RoleGate roles={['ADMIN']}><TeamPage /></RoleGate>} />
+              <Route path="upload" element={<RoleGate roles={['ADMIN', 'CATEGORY']}><StaffUploadPage /></RoleGate>} />
               <Route path="submissions" element={<AdminSubmissionsPage />} />
               <Route path="submissions/:id" element={<SubmissionReviewPage />} />
               <Route path="notifications" element={<NotificationsPage />} />

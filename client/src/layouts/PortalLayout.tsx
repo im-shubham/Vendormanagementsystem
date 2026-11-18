@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type ComponentType } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  Bell, ChevronDown, ClipboardCheck, FileText, HelpCircle, Home, LogOut, Menu, UploadCloud, UserPlus, Users, X,
+  Bell, ChevronDown, ClipboardCheck, FileText, HelpCircle, Home, LogOut, Menu, ShieldCheck, UploadCloud, UserPlus, Users, X,
 } from 'lucide-react';
+import { categoryLabel, ROLE_LABELS } from '@/utils/constants';
+import type { User } from '@/types';
 import clsx from 'clsx';
 import { Logo } from '@/components/brand/Logo';
 import { NotificationBell } from '@/components/layout/NotificationBell';
@@ -25,17 +27,35 @@ const VENDOR_NAV: NavItem[] = [
   { to: '/vendor/help', label: 'Help & Support', icon: HelpCircle },
 ];
 
-function useAdminCounts(enabled: boolean) {
-  const [counts, setCounts] = useState({ review: 0, registrations: 0 });
+function useStaffCounts(user: User | null, enabled: boolean) {
+  const [counts, setCounts] = useState({ pods: 0, registrations: 0 });
   const location = useLocation();
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !user) return;
     adminService
-      .badgeCounts()
+      .badgeCounts(user)
       .then(setCounts)
       .catch(() => undefined);
-  }, [enabled, location.pathname]);
+  }, [enabled, user, location.pathname]);
   return counts;
+}
+
+function staffNav(user: User | null, counts: { pods: number; registrations: number }): NavItem[] {
+  const role = user?.role;
+  const items: NavItem[] = [
+    { to: '/admin', label: 'Dashboard', icon: Home, end: true },
+    { to: '/admin/submissions', label: role === 'BILLING' ? 'PODs for Billing' : 'POD Submissions', icon: ClipboardCheck, badge: counts.pods },
+  ];
+  if (role === 'ADMIN' || role === 'CATEGORY') items.push({ to: '/admin/upload', label: 'Upload POD', icon: UploadCloud });
+  if (role === 'ADMIN') {
+    items.push(
+      { to: '/admin/vendors', label: 'Vendors', icon: Users },
+      { to: '/admin/registrations', label: 'Registration Requests', icon: UserPlus, badge: counts.registrations },
+      { to: '/admin/team', label: 'Team & Access', icon: ShieldCheck },
+    );
+  }
+  items.push({ to: '/admin/notifications', label: 'Notifications', icon: Bell });
+  return items;
 }
 
 export function PortalLayout({ portal }: { portal: 'vendor' | 'admin' }) {
@@ -45,18 +65,11 @@ export function PortalLayout({ portal }: { portal: 'vendor' | 'admin' }) {
   const [drawer, setDrawer] = useState(false);
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const counts = useAdminCounts(portal === 'admin');
-
-  const nav: NavItem[] =
-    portal === 'vendor'
-      ? VENDOR_NAV
-      : [
-          { to: '/admin', label: 'Dashboard', icon: Home, end: true },
-          { to: '/admin/submissions', label: 'POD Verifications', icon: ClipboardCheck, badge: counts.review },
-          { to: '/admin/vendors', label: 'Vendors', icon: Users },
-          { to: '/admin/registrations', label: 'Registration Requests', icon: UserPlus, badge: counts.registrations },
-          { to: '/admin/notifications', label: 'Notifications', icon: Bell },
-        ];
+  const counts = useStaffCounts(user, portal === 'admin');
+  const nav: NavItem[] = portal === 'vendor' ? VENDOR_NAV : staffNav(user, counts);
+  const roleTitle = user && user.role !== 'VENDOR' ? ROLE_LABELS[user.role] : '';
+  const scopeText =
+    user?.role === 'CATEGORY' ? user.categories.map(categoryLabel).join(', ') : user?.role === 'BILLING' ? 'All categories' : user?.role === 'ADMIN' ? 'Full access' : '';
 
   useEffect(() => setDrawer(false), [location.pathname]);
   useEffect(() => {
@@ -79,7 +92,12 @@ export function PortalLayout({ portal }: { portal: 'vendor' | 'admin' }) {
       <div className="rounded-br-[2.25rem] bg-white px-6 pb-5 pt-5 shadow-[0_8px_24px_rgba(0,0,0,0.12)]">
         <Logo className="mx-auto w-[190px]" />
       </div>
-      {portal === 'admin' && <p className="px-7 pb-1 pt-6 text-xl font-bold text-white">Admin Portal</p>}
+      {portal === 'admin' && (
+        <div className="px-7 pb-1 pt-6">
+          <p className="text-xl font-bold text-white">{roleTitle} Portal</p>
+          {scopeText && <p className="mt-0.5 line-clamp-2 text-xs text-navy-200">{scopeText}</p>}
+        </div>
+      )}
       <nav className={clsx('flex-1 space-y-1.5 overflow-y-auto px-4', portal === 'admin' ? 'pt-3' : 'pt-7')} aria-label="Main">
         {nav.map((item) => (
           <NavLink
@@ -104,7 +122,7 @@ export function PortalLayout({ portal }: { portal: 'vendor' | 'admin' }) {
           <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-royal-100 font-bold text-royal-800">{initial}</div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-white">{displayName}</p>
-            <p className="text-xs text-navy-200">RCPL</p>
+            <p className="text-xs text-navy-200">RCPL · {roleTitle}</p>
           </div>
           <button onClick={doLogout} className="rounded-lg p-2 text-navy-200 hover:bg-white/10 hover:text-white" aria-label="Log out" title="Log out">
             <LogOut className="h-4 w-4" />
@@ -145,12 +163,16 @@ export function PortalLayout({ portal }: { portal: 'vendor' | 'admin' }) {
             </button>
             <div className="min-w-0 flex-1">
               <p className="truncate text-lg font-extrabold text-navy-900 sm:text-2xl lg:text-[28px]">
-                {portal === 'vendor' ? 'Vendor POD Portal' : 'POD Management – Admin'}
+                {portal === 'vendor' ? 'Vendor POD Portal' : `POD Management – ${roleTitle}`}
               </p>
               <p className="hidden truncate text-sm text-slate-500 sm:block">
                 {portal === 'vendor'
                   ? 'Upload and track Proof of Delivery (POD) for your dispatches'
-                  : 'Verify, track and manage Proof of Delivery (POD) submissions from vendors'}
+                  : user?.role === 'BILLING'
+                    ? 'Process Proof of Delivery (POD) documents forwarded by the category teams'
+                    : user?.role === 'CATEGORY'
+                      ? `Collect, check and forward PODs — ${scopeText}`
+                      : 'Track and manage Proof of Delivery (POD) documents across all categories'}
               </p>
             </div>
             <NotificationBell allPath={`/${portal}/notifications`} />
@@ -167,6 +189,7 @@ export function PortalLayout({ portal }: { portal: 'vendor' | 'admin' }) {
                     <p className="truncate font-semibold text-slate-800">{displayName}</p>
                     <p className="truncate text-sm text-slate-500">{user?.email}</p>
                     {user?.vendor && <p className="mt-1 text-xs font-medium text-slate-400">Vendor code: {user.vendor.code}</p>}
+                    {roleTitle && <p className="mt-1 text-xs font-medium text-slate-400">{roleTitle}{scopeText ? ` · ${scopeText}` : ''}</p>}
                   </div>
                   <button role="menuitem" onClick={doLogout} className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-semibold text-brand-red hover:bg-red-50">
                     <LogOut className="h-4 w-4" /> Log out

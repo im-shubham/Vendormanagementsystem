@@ -1,6 +1,6 @@
 import type { DocumentData, DocumentSnapshot, QueryDocumentSnapshot } from 'firebase/firestore';
 import { iso } from '@/lib/firestore';
-import type { AppNotification, PodDocument, RegistrationRequest, StatusHistoryEntry, Submission, Vendor } from '@/types';
+import type { AppNotification, PodDocument, RegistrationRequest, StaffUser, StatusHistoryEntry, Submission, Vendor } from '@/types';
 
 type Snap = QueryDocumentSnapshot<DocumentData> | DocumentSnapshot<DocumentData>;
 const d = (s: Snap) => s.data() ?? {};
@@ -13,6 +13,7 @@ export const toSubmission = (s: Snap): Submission => {
     vendorId: x.vendorId,
     vendorName: x.vendorName,
     vendorCode: x.vendorCode,
+    category: x.category,
     poNumber: x.poNumber,
     invoiceNumber: x.invoiceNumber,
     deliveryDate: x.deliveryDate,
@@ -20,9 +21,14 @@ export const toSubmission = (s: Snap): Submission => {
     submittedAt: iso(x.submittedAt) ?? new Date().toISOString(),
     status: x.currentStatus,
     currentVersion: x.currentVersion ?? 1,
-    adminRemarks: x.adminRemarks ?? null,
-    reviewedAt: iso(x.reviewedAt),
-    reviewerName: x.reviewedByName ?? null,
+    lastRemarks: x.lastRemarks ?? null,
+    uploadedByName: x.uploadedByName ?? null,
+    uploadedByRole: x.uploadedByRole ?? null,
+    lastActionByName: x.lastActionByName ?? null,
+    lastActionByRole: x.lastActionByRole ?? null,
+    lastActionAt: iso(x.lastActionAt),
+    forwardedAt: iso(x.forwardedAt),
+    billedAt: iso(x.billedAt),
     updatedAt: iso(x.updatedAt) ?? '',
   };
 };
@@ -66,6 +72,7 @@ export const toVendor = (s: Snap): Vendor => {
     mobileNumber: x.mobileNumber ?? null,
     address: x.address ?? null,
     accountStatus: x.accountStatus,
+    categories: x.categories ?? [],
     registeredAt: iso(x.registeredAt),
     createdAt: iso(x.createdAt) ?? '',
     updatedAt: iso(x.updatedAt) ?? '',
@@ -90,6 +97,19 @@ export const toRegistration = (s: Snap): RegistrationRequest => {
       mobileNumber: x.mobileNumber ?? null,
       accountStatus: x.accountStatus,
     },
+  };
+};
+
+export const toStaff = (s: Snap): StaffUser => {
+  const x = d(s);
+  return {
+    uid: s.id,
+    role: x.role,
+    fullName: x.fullName ?? x.email,
+    email: x.email,
+    categories: x.categories ?? [],
+    active: x.active !== false,
+    createdAt: iso(x.createdAt) ?? '',
   };
 };
 

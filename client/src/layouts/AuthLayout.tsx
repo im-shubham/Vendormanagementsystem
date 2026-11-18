@@ -10,10 +10,10 @@ const VENDOR_FEATURES = [
   { icon: BarChart3, label: 'View Delivery History' },
 ];
 const ADMIN_FEATURES = [
-  { icon: ClipboardCheck, label: 'Verify POD Submissions' },
-  { icon: Users, label: 'Manage Vendor Master' },
-  { icon: ShieldCheck, label: 'Approve Vendor Registrations' },
-  { icon: BarChart3, label: 'Track Delivery Compliance' },
+  { icon: ClipboardCheck, label: 'Collect & Check PODs by Category' },
+  { icon: UploadCloud, label: 'Upload PODs from WhatsApp / Email' },
+  { icon: ShieldCheck, label: 'Forward to Billing in One Click' },
+  { icon: Users, label: 'Manage Vendors & Teams' },
 ];
 
 export function AuthLayout({ children, variant = 'vendor' }: { children: ReactNode; variant?: 'vendor' | 'admin' }) {
@@ -32,10 +32,10 @@ export function AuthLayout({ children, variant = 'vendor' }: { children: ReactNo
               <Logo className="w-[200px]" />
             </div>
             <div className="mt-8 h-1.5 w-14 rounded-full bg-brand-red" />
-            <h1 className="mt-6 text-4xl font-extrabold tracking-tight xl:text-[44px]">{variant === 'admin' ? 'POD Admin Portal' : 'Vendor POD Portal'}</h1>
+            <h1 className="mt-6 text-4xl font-extrabold tracking-tight xl:text-[44px]">{variant === 'admin' ? 'RCPL POD Staff Portal' : 'Vendor POD Portal'}</h1>
             <p className="mt-3 max-w-md text-lg leading-relaxed text-navy-100">
               {variant === 'admin'
-                ? 'Verify, track and manage Proof of Delivery submissions from RCPL vendors.'
+                ? 'Category teams, billing and admins — one place for every Proof of Delivery.'
                 : 'Upload, track and manage Proof of Delivery (POD) seamlessly.'}
             </p>
             <ul className="mt-8 space-y-4">
