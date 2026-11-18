@@ -1,5 +1,6 @@
 import { logger } from 'firebase-functions';
 import { COL, FieldValue, db } from './admin';
+import type { Category } from './constants';
 
 /**
  * In-app notifications (single place where notifications are created).
@@ -13,9 +14,10 @@ interface Notice {
 }
 
 async function send(userIds: string[], n: Notice) {
-  if (!userIds.length) return;
+  const unique = [...new Set(userIds)];
+  if (!unique.length) return;
   const batch = db.batch();
-  for (const userId of userIds) {
+  for (const userId of unique) {
     batch.create(db.collection(COL.notifications).doc(), {
       userId,
       title: n.title,
@@ -28,20 +30,31 @@ async function send(userIds: string[], n: Notice) {
   await batch.commit();
 }
 
-export async function notifyVendor(vendorId: string, n: Notice) {
-  try {
-    const snap = await db.collection(COL.userProfiles).where('vendorId', '==', vendorId).where('role', '==', 'VENDOR').get();
-    await send(snap.docs.map((d) => d.id), n);
-  } catch (err) {
-    logger.error('notifyVendor failed', err);
-  }
-}
+const safe = (label: string, fn: () => Promise<void>) =>
+  fn().catch((err) => logger.error(`${label} failed`, err));
 
-export async function notifyAdmins(n: Notice) {
-  try {
+const activeIds = (snap: FirebaseFirestore.QuerySnapshot) => snap.docs.filter((d) => d.get('active') !== false).map((d) => d.id);
+
+export const notifyVendor = (vendorId: string, n: Notice, exceptUid?: string) =>
+  safe('notifyVendor', async () => {
+    const snap = await db.collection(COL.userProfiles).where('vendorId', '==', vendorId).where('role', '==', 'VENDOR').get();
+    await send(snap.docs.map((d) => d.id).filter((id) => id !== exceptUid), n);
+  });
+
+export const notifyCategory = (category: Category, n: Notice, exceptUid?: string) =>
+  safe('notifyCategory', async () => {
+    const snap = await db.collection(COL.userProfiles).where('role', '==', 'CATEGORY').where('categories', 'array-contains', category).get();
+    await send(activeIds(snap).filter((id) => id !== exceptUid), n);
+  });
+
+export const notifyBilling = (n: Notice, exceptUid?: string) =>
+  safe('notifyBilling', async () => {
+    const snap = await db.collection(COL.userProfiles).where('role', '==', 'BILLING').get();
+    await send(activeIds(snap).filter((id) => id !== exceptUid), n);
+  });
+
+export const notifyAdmins = (n: Notice) =>
+  safe('notifyAdmins', async () => {
     const snap = await db.collection(COL.userProfiles).where('role', '==', 'ADMIN').get();
-    await send(snap.docs.map((d) => d.id), n);
-  } catch (err) {
-    logger.error('notifyAdmins failed', err);
-  }
-}
+    await send(activeIds(snap), n);
+  });

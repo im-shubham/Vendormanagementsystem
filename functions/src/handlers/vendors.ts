@@ -2,7 +2,7 @@ import { onCall } from 'firebase-functions/https';
 import { logger } from 'firebase-functions';
 import { COL, FieldValue, adminAuth, db } from '../lib/admin';
 import { alreadyExists, conflict, invalid, notFound } from '../lib/errors';
-import { requireAdmin } from '../lib/guards';
+import { requireAdmin, requireStaff } from '../lib/guards';
 import { uniqueKey } from '../lib/keys';
 import { notifyVendor } from '../lib/notifications';
 import { buildSearchKeywords } from '../lib/search';
@@ -119,4 +119,30 @@ export const reactivateVendor = onCall(async (req) => {
     await notifyVendor(vendorId, { title: 'Account activated', message: 'Your vendor account is now active. You can upload POD documents.', link: '/vendor' });
   }
   return { vendorId, accountStatus: next };
+});
+
+/**
+ * Staff: vendors the caller may upload PODs for.
+ * Admin → all vendors; Category → vendors that supply any of their categories.
+ * (Vendors need not have activated a login — category teams upload PODs
+ * received on WhatsApp / email on their behalf.)
+ */
+export const listUploadVendors = onCall(async (req) => {
+  const staff = await requireStaff(req, ['ADMIN', 'CATEGORY']);
+  let q: FirebaseFirestore.Query = db.collection(COL.vendors);
+  if (staff.role === 'CATEGORY') {
+    if (!staff.categories.length) return { vendors: [] };
+    q = q.where('categories', 'array-contains-any', staff.categories.slice(0, 30));
+  }
+  const snap = await q.limit(2000).get();
+  const vendors = snap.docs
+    .filter((d) => d.get('accountStatus') !== 'DEACTIVATED')
+    .map((d) => ({
+      id: d.id,
+      vendorName: d.get('vendorName') as string,
+      vendorCode: d.get('vendorCode') as string,
+      categories: ((d.get('categories') as string[]) ?? []).filter((c) => staff.role === 'ADMIN' || staff.categories.includes(c as never)),
+    }))
+    .sort((a, b) => a.vendorName.localeCompare(b.vendorName));
+  return { vendors };
 });

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { invalid } from './errors';
+import { CATEGORIES } from './constants';
 
 export function parse<T extends z.ZodType>(schema: T, data: unknown): z.infer<T> {
   const r = schema.safeParse(data ?? {});
@@ -43,6 +44,12 @@ const deliveryDate = z
   .refine((v) => v <= new Date(Date.now() + 86400000).toISOString().slice(0, 10), 'Delivery date cannot be in the future');
 
 export const docId = z.string().regex(/^[A-Za-z0-9]{10,40}$/, 'Invalid id');
+export const uidSchema = z.string().regex(/^[A-Za-z0-9_-]{6,128}$/, 'Invalid user id');
+export const categorySchema = z.enum(CATEGORIES, { error: 'Select a valid category' });
+export const categoriesSchema = z
+  .array(categorySchema, { error: 'Select at least one category' })
+  .min(1, 'Select at least one category')
+  .transform((a) => [...new Set(a)].sort());
 
 export const schemas = {
   activate: z
@@ -55,6 +62,7 @@ export const schemas = {
     contactPerson: text('Contact person', 120),
     mobileNumber: z.string({ error: 'Mobile number is required' }).trim().regex(/^\+?[0-9][0-9\s-]{8,16}$/, 'Enter a valid mobile number'),
     address: text('Address', 500),
+    categories: categoriesSchema,
   }),
   vendorUpdate: z.object({ vendorId: docId }),
   vendorRef: z.object({ vendorId: docId }),
@@ -65,6 +73,9 @@ export const schemas = {
   }),
   createSubmission: z.object({
     submissionId: docId,
+    vendorId: docId.optional(), // staff uploads on behalf of a vendor
+    category: categorySchema,
+    forwardNow: z.boolean().optional(), // staff only: forward straight to billing
     poNumber: text('PO Number', 50),
     invoiceNumber: text('Invoice Number', 50),
     deliveryDate,
@@ -78,9 +89,26 @@ export const schemas = {
     deliveryReference: optionalText(100).optional(),
     note: optionalText(500),
   }),
-  reviewSubmission: z
-    .object({ submissionId: docId, decision: z.enum(['APPROVED', 'REJECTED']), remarks: optionalText(1000) })
-    .refine((d) => d.decision === 'APPROVED' || !!d.remarks, { path: ['remarks'], message: 'Rejection remarks are mandatory' }),
+  podAction: z
+    .object({ submissionId: docId, action: z.enum(['FORWARD', 'SEND_BACK', 'MARK_BILLED']), remarks: optionalText(1000) })
+    .refine((d) => d.action !== 'SEND_BACK' || !!d.remarks, { path: ['remarks'], message: 'Please give a reason for sending it back' }),
+  staffCreate: z
+    .object({
+      email: emailSchema,
+      fullName: text('Full name', 120),
+      role: z.enum(['ADMIN', 'CATEGORY', 'BILLING']),
+      categories: z.array(categorySchema).default([]),
+    })
+    .refine((d) => d.role !== 'CATEGORY' || d.categories.length > 0, { path: ['categories'], message: 'Select at least one category' }),
+  staffUpdate: z
+    .object({
+      uid: uidSchema,
+      fullName: text('Full name', 120),
+      role: z.enum(['ADMIN', 'CATEGORY', 'BILLING']),
+      categories: z.array(categorySchema).default([]),
+    })
+    .refine((d) => d.role !== 'CATEGORY' || d.categories.length > 0, { path: ['categories'], message: 'Select at least one category' }),
+  staffActive: z.object({ uid: uidSchema, active: z.boolean() }),
 };
 
 export { todayIso };

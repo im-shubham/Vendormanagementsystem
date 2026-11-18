@@ -6,25 +6,26 @@ rules_version = '2';
 // Layout: pod-documents/{vendorId}/{submissionId}/version-{n}/{file}
 //   file = pod-document.(pdf|jpg|jpeg|png) | supporting-photo.(jpg|jpeg|png)
 //
-//  * Nothing is public. Reads need an admin claim, or the ACTIVE vendor
-//    that owns the folder.
-//  * Vendors may only CREATE new objects in their own folder (no overwrite,
-//    no delete), with type and size limits. A file only becomes part of a
-//    submission when the Cloud Function verifies and registers it.
+//  * Nothing is public.
+//  * Read:   Admin · Category team of the submission's category · Billing
+//            once forwarded · the ACTIVE vendor owning the folder.
+//  * Create: the ACTIVE vendor (own folder) · Admin · Category team for
+//            vendors in their categories. No overwrite, no delete.
+//    A file only becomes part of a submission when the Cloud Function
+//    verifies and registers it.
 // =====================================================================
 service firebase.storage {
   match /b/{bucket}/o {
 
-    function isAdmin() {
-      return request.auth != null && request.auth.token.role == 'ADMIN';
-    }
+    function signedIn() { return request.auth != null; }
+    function doc(path) { return firestore.get(path).data; }
+    function profile() { return doc(/databases/(default)/documents/userProfiles/$(request.auth.uid)); }
+    function staff(r) { return signedIn() && request.auth.token.role == r && profile().get('active', true) == true; }
     function ownsFolder(vendorId) {
-      return request.auth != null
-        && request.auth.token.role == 'VENDOR'
-        && request.auth.token.vendorId == vendorId;
+      return signedIn() && request.auth.token.role == 'VENDOR' && request.auth.token.vendorId == vendorId;
     }
     function vendorIsActive(vendorId) {
-      return firestore.get(/databases/(default)/documents/vendors/$(vendorId)).data.accountStatus == 'ACTIVE';
+      return doc(/databases/(default)/documents/vendors/$(vendorId)).accountStatus == 'ACTIVE';
     }
     function validUpload(version, fileName) {
       return version.matches('version-[1-9][0-9]{0,2}')
@@ -35,9 +36,17 @@ service firebase.storage {
     }
 
     match /pod-documents/{vendorId}/{submissionId}/{version}/{fileName} {
-      allow read: if isAdmin() || (ownsFolder(vendorId) && vendorIsActive(vendorId));
+      allow read: if (signedIn() && request.auth.token.role == 'ADMIN')
+        || (ownsFolder(vendorId) && vendorIsActive(vendorId))
+        || (staff('CATEGORY') && doc(/databases/(default)/documents/podSubmissions/$(submissionId)).category in profile().get('categories', []))
+        || (staff('BILLING') && doc(/databases/(default)/documents/podSubmissions/$(submissionId)).billingVisible == true);
+
       // resource == null: the object must not exist yet (no overwrites).
-      allow create: if resource == null && ownsFolder(vendorId) && vendorIsActive(vendorId) && validUpload(version, fileName);
+      allow create: if resource == null && validUpload(version, fileName) && (
+           (ownsFolder(vendorId) && vendorIsActive(vendorId))
+        || staff('ADMIN')
+        || (staff('CATEGORY') && doc(/databases/(default)/documents/vendors/$(vendorId)).get('categories', []).hasAny(profile().get('categories', [])))
+      );
       allow update, delete: if false;
     }
 

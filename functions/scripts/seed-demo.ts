@@ -10,23 +10,33 @@ process.argv.push(...(process.argv.includes('--project') ? [] : ['--emulator']))
 initAdmin();
 
 const ADMIN = { email: 'admin@rcpl.demo', password: 'Admin@12345', name: 'Admin User' };
-const VENDORS = [
-  ['V1001', 'ABC Foods Pvt. Ltd.', 'abcfoods@example.com', 'Rahul Sharma', '+91 98200 11111', 'Plot 12, MIDC Industrial Area, Navi Mumbai, Maharashtra 400710'],
-  ['V1002', 'XYZ Agri Traders', 'xyzagri@example.com', 'Priya Patel', '+91 98200 22222', '45 APMC Market Yard, Ahmedabad, Gujarat 380022'],
-  ['V1003', 'MNO Exports', 'mnoexports@example.com', 'Arjun Nair', '+91 98200 33333', '7 Port Road, Kochi, Kerala 682001'],
-  ['V1004', 'Global Foods Ltd.', 'globalfoods@example.com', 'Sneha Reddy', '+91 98200 44444', '22 Food Park, Hyderabad, Telangana 500032'],
+const STAFF = [
+  { email: 'category.rice@rcpl.demo', password: 'Category@123', name: 'Rice & Pulses Team', role: 'CATEGORY' as const, categories: ['RICE', 'PULSES'] },
+  { email: 'category.oils@rcpl.demo', password: 'Category@123', name: 'Edible Oils Team', role: 'CATEGORY' as const, categories: ['EDIBLE_OILS', 'GHEE'] },
+  { email: 'billing@rcpl.demo', password: 'Billing@123', name: 'Billing Team', role: 'BILLING' as const, categories: [] },
+];
+
+const VENDORS: Array<[string, string, string, string, string, string, string[]]> = [
+  ['V1001', 'ABC Foods Pvt. Ltd.', 'abcfoods@example.com', 'Rahul Sharma', '+91 98200 11111', 'Plot 12, MIDC Industrial Area, Navi Mumbai, Maharashtra 400710', ['RICE', 'PULSES']],
+  ['V1002', 'XYZ Agri Traders', 'xyzagri@example.com', 'Priya Patel', '+91 98200 22222', '45 APMC Market Yard, Ahmedabad, Gujarat 380022', ['SUGAR', 'SALT']],
+  ['V1003', 'MNO Exports', 'mnoexports@example.com', 'Arjun Nair', '+91 98200 33333', '7 Port Road, Kochi, Kerala 682001', ['SPICES', 'DRY_FRUITS']],
+  ['V1004', 'Global Foods Ltd.', 'globalfoods@example.com', 'Sneha Reddy', '+91 98200 44444', '22 Food Park, Hyderabad, Telangana 500032', ['EDIBLE_OILS', 'GHEE', 'FLOUR']],
 ];
 
 (async () => {
-  const { createAdmin } = await import('./admin-users');
+  const { createAdmin, createStaff } = await import('./admin-users');
   const { COL, FieldValue, db } = await import('../src/lib/admin');
   const { uniqueKey } = await import('../src/lib/keys');
   const { buildSearchKeywords } = await import('../src/lib/search');
 
   await createAdmin(ADMIN.email, ADMIN.password, ADMIN.name);
   console.info(`✔ Demo admin: ${ADMIN.email} / ${ADMIN.password}`);
+  for (const u of STAFF) {
+    await createStaff(u.email, u.password, u.name, u.role, u.categories);
+    console.info(`✔ Demo ${u.role.toLowerCase()} user: ${u.email} / ${u.password}${u.categories.length ? ` (${u.categories.join(', ')})` : ''}`);
+  }
 
-  for (const [vendorCode, vendorName, email, contactPerson, mobileNumber, address] of VENDORS) {
+  for (const [vendorCode, vendorName, email, contactPerson, mobileNumber, address, categories] of VENDORS) {
     const codeKey = uniqueKey.vendorCode(vendorCode);
     if ((await codeKey.get()).exists) {
       console.info(`  Vendor ${vendorCode} already exists`);
@@ -38,7 +48,7 @@ const VENDORS = [
     batch.create(codeKey, { kind: 'vendorCode', vendorId: ref.id });
     batch.create(uniqueKey.vendorEmail(email), { kind: 'vendorEmail', vendorId: ref.id });
     batch.create(ref, {
-      vendorCode, vendorName, email, contactPerson, mobileNumber, address,
+      vendorCode, vendorName, email, contactPerson, mobileNumber, address, categories,
       accountStatus: 'NOT_REGISTERED', authUid: null, registeredAt: null, createdAt: now, updatedAt: now, createdBy: 'seed',
       searchKeywords: buildSearchKeywords(vendorName, vendorCode, email, contactPerson),
     });
