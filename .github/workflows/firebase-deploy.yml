@@ -1,0 +1,99 @@
+# =====================================================================
+# RCPL Vendor POD Management — test & deploy to Firebase
+#
+#  * Every push / pull request: typecheck + full emulator test suite.
+#  * Push to `main` (or "Run workflow" manually): deploy Firestore rules &
+#    indexes, Storage rules, Cloud Functions and Hosting.
+#
+# One-time setup (GitHub → Settings → Secrets and variables → Actions):
+#   Secret   FIREBASE_SERVICE_ACCOUNT   JSON key of a deploy-only service account
+#   Variable FIREBASE_PROJECT_ID        e.g. rcpl-pod-prod
+#   Variable VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_STORAGE_BUCKET,
+#            VITE_FIREBASE_MESSAGING_SENDER_ID, VITE_FIREBASE_APP_ID   (web app config — not secret)
+#   Variable VITE_SUPPORT_EMAIL (optional), FUNCTIONS_REGION (optional, default asia-south1)
+# See DEPLOY.md → "Option B" for creating the service account.
+# =====================================================================
+name: Test & Deploy (Firebase)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: firebase-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Typecheck + emulator tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  deploy:
+    name: Deploy to Firebase
+    needs: test
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+      REGION: ${{ vars.FUNCTIONS_REGION || 'asia-south1' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Check configuration
+        run: |
+          missing=0
+          for v in PROJECT_ID; do [ -z "${!v}" ] && echo "::error::Repository variable FIREBASE_PROJECT_ID is not set" && missing=1; done
+          [ -z "${{ vars.VITE_FIREBASE_API_KEY }}" ] && echo "::error::Repository variable VITE_FIREBASE_API_KEY is not set" && missing=1
+          [ -z "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" ] && echo "::error::Secret FIREBASE_SERVICE_ACCOUNT is not set" && missing=1
+          exit $missing
+
+      - name: Write build configuration (no secrets)
+        run: |
+          cat > client/.env.production <<EOF
+          VITE_FIREBASE_API_KEY=${{ vars.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN=${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID=${PROJECT_ID}
+          VITE_FIREBASE_STORAGE_BUCKET=${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID=${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID=${{ vars.VITE_FIREBASE_APP_ID }}
+          VITE_FIREBASE_FUNCTIONS_REGION=${REGION}
+          VITE_USE_FIREBASE_EMULATORS=false
+          VITE_SUPPORT_EMAIL=${{ vars.VITE_SUPPORT_EMAIL || 'vendor.support@rcpl.example' }}
+          EOF
+          echo "APP_REGION=${REGION}" > functions/.env
+
+      - run: npm run build
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Deploy rules, indexes, functions and hosting
+        run: npx firebase deploy --project "$PROJECT_ID" --non-interactive --force

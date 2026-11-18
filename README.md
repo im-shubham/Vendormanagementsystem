@@ -222,6 +222,8 @@ It also checks:
 - [ ] Turn on **App Check** (reCAPTCHA Enterprise) and enforce it for Firestore, Storage and Functions.
 - [ ] Block client-side account creation: upgrade Auth to **Identity Platform** and turn off "Enable create (sign-up)" (activation runs server-side, so nothing breaks).
 - [ ] Set budget alerts on the Blaze plan.
+
+> **Step-by-step deploy guide (laptop terminal or GitHub Actions): see [DEPLOY.md](DEPLOY.md).**
 - [ ] Restrict the browser API key to your Hosting domains (Google Cloud console → Credentials).
 - [ ] Confirm the region meets RCPL data-residency rules.
 
