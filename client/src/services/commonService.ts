@@ -9,7 +9,25 @@ export const notificationService = {
   /** Realtime subscription to the signed-in user's notifications. */
   subscribe(uid: string, cb: (items: AppNotification[]) => void, onError?: (e: unknown) => void) {
     const q = query(collection(db, 'notifications'), where('userId', '==', uid), orderBy('createdAt', 'desc'), limit(50));
-    return onSnapshot(q, (snap) => cb(snap.docs.map(toNotification)), onError);
+    let fallback: (() => void) | null = null;
+    const primary = onSnapshot(
+      q,
+      (snap) => cb(snap.docs.map(toNotification)),
+      (err) => {
+        // While the database index is still building, fall back to an unordered query sorted locally.
+        if ((err as { code?: string }).code === 'failed-precondition' && !fallback) {
+          fallback = onSnapshot(
+            query(collection(db, 'notifications'), where('userId', '==', uid), limit(200)),
+            (snap) => cb(snap.docs.map(toNotification).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 50)),
+            onError,
+          );
+        } else onError?.(err);
+      },
+    );
+    return () => {
+      primary();
+      fallback?.();
+    };
   },
   markRead: (id: string) => updateDoc(doc(db, 'notifications', id), { isRead: true }),
   async markAllRead(ids: string[]) {

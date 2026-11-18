@@ -6,7 +6,7 @@ import { CATEGORY_LABELS, type Category } from '../lib/constants';
 import { alreadyExists, conflict, denied, invalid, notFound } from '../lib/errors';
 import { requireStaff, type StaffCaller } from '../lib/guards';
 import { uniqueKey } from '../lib/keys';
-import { notifyVendor } from '../lib/notifications';
+import { categoryText, notify, notifyVendor, sendEmail } from '../lib/notifications';
 import { buildSearchKeywords } from '../lib/search';
 import { categoriesSchema, docId, emailSchema, parse, schemas, vendorCodeSchema } from '../lib/validation';
 
@@ -86,7 +86,38 @@ export const createVendor = onCall(async (req) => {
       searchKeywords: keywords(input),
     });
   });
+  await Promise.all([
+    sendVendorInviteEmail(input.vendorName, input.vendorCode, input.email),
+    notify(
+      { admins: true, categories: input.categories },
+      { title: 'New vendor added', message: `${input.vendorName} (${input.vendorCode}, ${categoryText(input.categories)}) was added by ${staff.name}. An activation email was sent to the vendor.`, link: `/admin/vendors/${ref.id}` },
+      { exceptUid: staff.uid, email: false },
+    ),
+  ]);
   return { vendorId: ref.id };
+});
+
+/** Email the vendor how to activate their portal login (first-time password creation). */
+function sendVendorInviteEmail(vendorName: string, vendorCode: string, email: string) {
+  return sendEmail(
+    email,
+    'Activate your vendor account',
+    `Welcome, ${vendorName}`,
+    `RCPL has registered you on the Vendor POD Portal. To create your password, open the link below, choose "First-Time Login / Create Password" and enter your registered email (${email}) and your vendor code ${vendorCode}. After RCPL approves your registration you can upload Proof of Delivery documents.`,
+    '/activate',
+  );
+}
+
+/** Resend the activation email to a vendor that has not created a password yet. */
+export const sendVendorInvite = onCall(async (req) => {
+  const staff = await requireStaff(req, [...VENDOR_ROLES]);
+  const { vendorId } = parse(z.object({ vendorId: docId }), req.data);
+  const snap = await db.collection(COL.vendors).doc(vendorId).get();
+  if (!snap.exists) throw notFound('Vendor not found.');
+  assertVendorAccess(staff, snap.get('categories') ?? []);
+  if (snap.get('accountStatus') !== 'NOT_REGISTERED') throw conflict('This vendor has already activated their login.');
+  await sendVendorInviteEmail(snap.get('vendorName'), snap.get('vendorCode'), snap.get('email'));
+  return { sent: true };
 });
 
 /**
@@ -109,6 +140,11 @@ export const linkVendorCategories = onCall(async (req) => {
     return merged;
   });
   await syncRegistrationCategories(ref.id, categories);
+  await notify(
+    { admins: true },
+    { title: 'Vendor linked to category', message: `${match.docs[0].get('vendorName')} now also supplies ${categoryText(input.categories)} (added by ${staff.name}).`, link: `/admin/vendors/${ref.id}` },
+    { exceptUid: staff.uid, email: false },
+  );
   return { vendorId: ref.id, vendorName: match.docs[0].get('vendorName') as string, categories };
 });
 

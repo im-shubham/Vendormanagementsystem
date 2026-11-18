@@ -17,6 +17,14 @@ import {
 } from 'firebase/firestore';
 import { connectFunctionsEmulator, getFunctions, httpsCallable } from 'firebase/functions';
 import { connectStorageEmulator, getBytes, getStorage, ref, uploadBytes } from 'firebase/storage';
+import { getApps as adminApps, initializeApp as adminInit } from 'firebase-admin/app';
+import { getFirestore as adminFirestore } from 'firebase-admin/firestore';
+
+/** Admin SDK (emulator) — only to inspect the server-only `mail` queue. */
+const adminDb = () => {
+  if (!adminApps().length) adminInit({ projectId: process.env.GCLOUD_PROJECT || 'demo-rcpl-pod' });
+  return adminFirestore();
+};
 
 const PROJECT = process.env.GCLOUD_PROJECT || 'demo-rcpl-pod';
 const REGION = 'asia-south1';
@@ -192,6 +200,13 @@ async function main() {
     await expectError(getDoc(doc(billing.db, 'podSubmissions', pod1)), denied, 'billing before forward');
     await expectError(billing.call('updatePodStatus', { submissionId: pod1, action: 'MARK_BILLED' }), (e) => denied(e) || fnCode('failed-precondition')(e), 'billing acts early');
     assert((await notes(catRice)).some((x) => x.title === 'New POD received'), 'rice team notified');
+    assert((await notes(admin)).some((x) => x.title === 'New POD received' && String(x.message).includes(`INV-${run}-1`)), 'admin notified');
+    const mails = await adminDb().collection('mail').get();
+    const toRice = mails.docs.filter((m) => (m.get('to') as string[]).includes(staff.rice.email) && String(m.get('message.text')).includes(`INV-${run}-1`));
+    assert(toRice.length === 1, `rice team emailed (${toRice.length})`);
+    assert(mails.docs.some((m) => (m.get('to') as string[]).includes(ADMIN.email) && String(m.get('message.text')).includes(`INV-${run}-1`)), 'admin emailed');
+    assert(!mails.docs.some((m) => (m.get('to') as string[]).includes(staff.sugar.email) && String(m.get('message.text')).includes(`INV-${run}-1`)), 'sugar team not emailed');
+    await expectError(getDocs(collection(vA.db, 'mail')), denied, 'clients cannot read mail queue');
     assert(!(await notes(catSugar)).some((x) => String(x.message).includes(`INV-${run}-1`)), 'sugar team not notified');
   });
 
@@ -224,7 +239,11 @@ async function main() {
     assert(new TextDecoder().decode(await getBytes(ref(billing.storage, v2.get('storagePath')))).includes('v2-from-whatsapp'), 'billing downloads');
     const hist = await getDocs(query(collection(billing.db, 'podStatusHistory'), where('submissionId', '==', pod1)));
     assert(hist.size >= 4, 'billing reads history');
-    assert((await notes(billing)).some((x) => x.title === 'POD ready for billing'), 'billing notified');
+    assert((await notes(billing)).some((x) => x.title === 'POD forwarded to billing'), 'billing notified');
+    assert((await notes(admin)).some((x) => x.title === 'POD forwarded to billing'), 'admin notified of forward');
+    const mails = await adminDb().collection('mail').get();
+    assert(mails.docs.some((m) => (m.get('to') as string[]).includes(staff.billing.email) && String(m.get('message.subject')).includes('forwarded to billing')), 'billing emailed');
+    assert(!(await notes(catRice)).some((x) => x.title === 'POD forwarded to billing'), 'actor not notified of own action');
   });
 
   await step('Billing sends back → vendor re-uploads v3 → forward → billing marks BILLED', async () => {
@@ -280,9 +299,18 @@ async function main() {
   console.info('\nCategory teams manage vendors');
   const vendorC = { ...base, vendorCode: `E2EC${run}`.slice(0, 30), vendorName: `E2E Gamma Multi ${run}`, email: `gamma.${lc}@example.com`, categories: ['RICE'] };
   let vendorCId = '';
+  await step('New vendor gets an activation email; resend works', async () => {
+    const mails = await adminDb().collection('mail').get();
+    assert(mails.docs.some((m) => (m.get('to') as string[]).includes(vendorA.email) && String(m.get('message.subject')).includes('Activate')), 'vendor invite emailed');
+  });
+
   await step('Category team creates vendors only with its own categories', async () => {
     await expectError(catRice.call('createVendor', { ...vendorC, categories: ['SUGAR'] }), denied, 'foreign category');
     vendorCId = (await catRice.call<{ vendorId: string }>('createVendor', vendorC)).vendorId;
+    assert((await notes(admin)).some((x) => x.title === 'New vendor added' && String(x.message).includes(vendorC.vendorName)), 'admin told about new vendor');
+    await catRice.call('sendVendorInvite', { vendorId: vendorCId });
+    const invites = (await adminDb().collection('mail').get()).docs.filter((m) => (m.get('to') as string[]).includes(vendorC.email));
+    assert(invites.length === 2, `invite + resend (${invites.length})`);
     const v = await getDoc(doc(catRice.db, 'vendors', vendorCId));
     assert(v.get('createdByRole') === 'CATEGORY', 'created by category');
     const list = await getDocs(query(collection(catRice.db, 'vendors'), where('categories', 'array-contains-any', ['RICE'])));
@@ -318,7 +346,8 @@ async function main() {
     const regs = await getDocs(query(collection(catSugar.db, 'vendorRegistrationRequests'), where('categories', 'array-contains-any', ['SUGAR']), where('approvalStatus', '==', 'PENDING')));
     const reg = regs.docs.find((d) => d.get('vendorId') === vendorCId);
     assert(reg, 'sugar team sees request');
-    assert((await notes(catRice)).some((x) => x.title === 'New vendor registration'), 'rice team notified');
+    assert((await notes(catRice)).some((x) => x.title === 'Vendor approval request'), 'rice team notified');
+    assert((await notes(admin)).some((x) => x.title === 'Vendor approval request'), 'admin notified');
     await expectError(getDocs(query(collection(billing.db, 'vendorRegistrationRequests'), where('approvalStatus', '==', 'PENDING'))), denied, 'billing reads requests');
     await expectError(billing.call('reviewVendorRegistration', { requestId: reg!.id, decision: 'APPROVED' }), denied, 'billing approves');
     const hist = await getDocs(query(collection(catRice.db, 'vendorRegistrationRequests'), where('vendorId', '==', vendorCId), where('categories', 'array-contains-any', ['RICE'])));

@@ -5,7 +5,7 @@ import { alreadyExists, conflict, denied, invalid, notFound } from '../lib/error
 import { deleteVersionFolder, verifyVersionFolder, type VerifiedFile } from '../lib/files';
 import { requireCaller, requireStaff, type Caller } from '../lib/guards';
 import { uniqueKey } from '../lib/keys';
-import { notifyBilling, notifyCategory, notifyVendor } from '../lib/notifications';
+import { notify } from '../lib/notifications';
 import { buildSearchKeywords } from '../lib/search';
 import { parse, schemas } from '../lib/validation';
 
@@ -162,17 +162,27 @@ export const createPodSubmission = onCall(async (req) => {
       return number;
     });
 
-    const link = (base: string) => `${base}/${subRef.id}`;
-    const label = `${submissionNumber} (${vendor.vendorName}, Invoice ${input.invoiceNumber})`;
+    const sLink = `/admin/submissions/${subRef.id}`;
+    const vLink = `/vendor/submissions/${subRef.id}`;
+    const label = `${submissionNumber} (${vendor.vendorName}, ${CATEGORY_LABELS[input.category]}, Invoice ${input.invoiceNumber})`;
     await Promise.all([
-      caller.kind === 'VENDOR'
-        ? notifyCategory(input.category, { title: 'New POD received', message: `${label} is waiting for your review.`, link: link('/admin/submissions') })
-        : notifyVendor(vendorId, { title: 'POD uploaded for you', message: `RCPL uploaded the POD for invoice ${input.invoiceNumber} (${submissionNumber}).`, link: link('/vendor/submissions') }),
-      caller.kind === 'VENDOR'
-        ? notifyVendor(vendorId, { title: 'POD submitted', message: `${submissionNumber} (Invoice ${input.invoiceNumber}) was submitted to the RCPL category team.`, link: link('/vendor/submissions') })
-        : forward
-          ? notifyBilling({ title: 'POD ready for billing', message: `${label} was forwarded to billing.`, link: link('/admin/submissions') }, by.uid)
-          : notifyCategory(input.category, { title: 'New POD uploaded', message: `${label} was uploaded by ${by.name}.`, link: link('/admin/submissions') }, by.uid),
+      // RCPL staff: category team of this category + all admins (+ billing if forwarded now)
+      notify(
+        { categories: [input.category], admins: true, billing: forward },
+        caller.kind === 'VENDOR'
+          ? { title: 'New POD received', message: `${label} was uploaded by the vendor and is waiting for review.`, link: sLink }
+          : forward
+            ? { title: 'POD ready for billing', message: `${label} was uploaded by ${by.name} and forwarded to billing.`, link: sLink }
+            : { title: 'New POD uploaded', message: `${label} was uploaded by ${by.name} on behalf of the vendor.`, link: sLink },
+        { exceptUid: by.uid },
+      ),
+      // Vendor: confirmation, or "uploaded for you"
+      notify(
+        { vendorId },
+        caller.kind === 'VENDOR'
+          ? { title: 'POD submitted', message: `${submissionNumber} (Invoice ${input.invoiceNumber}) was submitted to the RCPL ${CATEGORY_LABELS[input.category]} team.`, link: vLink }
+          : { title: 'POD uploaded for you', message: `RCPL uploaded the POD for invoice ${input.invoiceNumber} (${submissionNumber}).`, link: vLink },
+      ),
     ]);
     return { submissionId: subRef.id, submissionNumber, status: forward ? 'FORWARDED_TO_BILLING' : 'SUBMITTED' };
   } catch (err) {
@@ -240,11 +250,14 @@ export const resubmitPodSubmission = onCall(async (req) => {
       return s;
     });
 
-    const link = (base: string) => `${base}/${subRef.id}`;
     await Promise.all([
-      notifyCategory(category, { title: 'New POD copy received', message: `${s.submissionNumber} (${s.vendorName}) version ${version} is waiting for review.`, link: link('/admin/submissions') }, by.uid),
+      notify(
+        { categories: [category], admins: true },
+        { title: 'New POD copy received', message: `${s.submissionNumber} (${s.vendorName}, Invoice ${s.invoiceNumber}) — version ${version} uploaded by ${by.name}, waiting for review.`, link: `/admin/submissions/${subRef.id}` },
+        { exceptUid: by.uid },
+      ),
       caller.kind === 'STAFF'
-        ? notifyVendor(vendorId, { title: 'New POD copy uploaded', message: `RCPL uploaded a new copy for ${s.submissionNumber} (version ${version}).`, link: link('/vendor/submissions') })
+        ? notify({ vendorId }, { title: 'New POD copy uploaded', message: `RCPL uploaded a new copy for ${s.submissionNumber} (version ${version}).`, link: `/vendor/submissions/${subRef.id}` })
         : Promise.resolve(),
     ]);
     return { submissionId: subRef.id, version, status: 'SUBMITTED' };
@@ -315,17 +328,24 @@ export const updatePodStatus = onCall(async (req) => {
   });
 
   const { s, next } = result;
-  const label = `${s.submissionNumber} (Invoice ${s.invoiceNumber})`;
+  const label = `${s.submissionNumber} (${s.vendorName}, ${CATEGORY_LABELS[s.category as Category]}, Invoice ${s.invoiceNumber})`;
   const vLink = `/vendor/submissions/${submissionId}`;
   const sLink = `/admin/submissions/${submissionId}`;
+  const ex = { exceptUid: by.uid };
   if (next === 'FORWARDED_TO_BILLING') {
-    await notifyBilling({ title: 'POD ready for billing', message: `${label} from ${s.vendorName} was forwarded to billing.`, link: sLink }, by.uid);
+    await Promise.all([
+      notify({ billing: true, admins: true }, { title: 'POD forwarded to billing', message: `${label} was forwarded to billing by ${by.name}.${remarks ? ` Note: ${remarks}` : ''}`, link: sLink }, ex),
+      notify({ vendorId: s.vendorId }, { title: 'POD with billing', message: `${s.submissionNumber} (Invoice ${s.invoiceNumber}) has been forwarded to the RCPL billing team.`, link: vLink }, { email: false }),
+    ]);
   } else if (next === 'BILLED') {
-    await notifyCategory(s.category, { title: 'POD billed', message: `${label} from ${s.vendorName} has been billed.`, link: sLink }, by.uid);
+    await Promise.all([
+      notify({ categories: [s.category], admins: true }, { title: 'POD billed', message: `${label} has been marked as billed by ${by.name}.${remarks ? ` Note: ${remarks}` : ''}`, link: sLink }, ex),
+      notify({ vendorId: s.vendorId }, { title: 'Billing completed', message: `${s.submissionNumber} (Invoice ${s.invoiceNumber}) has been processed by RCPL billing.`, link: vLink }),
+    ]);
   } else {
     await Promise.all([
-      notifyVendor(s.vendorId, { title: 'New POD copy requested', message: `${label}: ${remarks}. Please upload a corrected POD copy.`, link: `${vLink}?reupload=1` }),
-      notifyCategory(s.category, { title: 'POD sent back', message: `${label} from ${s.vendorName} was sent back by ${by.name}: ${remarks}`, link: sLink }, by.uid),
+      notify({ vendorId: s.vendorId }, { title: 'New POD copy requested', message: `${s.submissionNumber} (Invoice ${s.invoiceNumber}): ${remarks}. Please upload a corrected POD copy.`, link: `${vLink}?reupload=1` }),
+      notify({ categories: [s.category], admins: true }, { title: 'POD sent back', message: `${label} was sent back by ${by.name}: ${remarks}`, link: sLink }, ex),
     ]);
   }
   return { submissionId, status: next };

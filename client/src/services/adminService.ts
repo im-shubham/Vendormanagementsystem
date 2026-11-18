@@ -28,6 +28,7 @@ const fns = {
   podAction: callFn<{ submissionId: string; action: 'FORWARD' | 'SEND_BACK' | 'MARK_BILLED'; remarks?: string | null }, { submissionId: string; status: string }>('updatePodStatus'),
   listUploadVendors: callFn<void, { vendors: UploadVendor[] }>('listUploadVendors'),
   createPod: callFn<Record<string, unknown>, { submissionId: string; submissionNumber: string; status: string }>('createPodSubmission'),
+  sendVendorInvite: callFn<{ vendorId: string }, { sent: boolean }>('sendVendorInvite'),
   linkVendor: callFn<{ vendorCode: string; email: string; categories: Category[] }, { vendorId: string; vendorName: string; categories: Category[] }>('linkVendorCategories'),
   createStaff: callFn<StaffInput, { uid: string }>('createStaffUser'),
   updateStaff: callFn<StaffInput & { uid: string }, { uid: string }>('updateStaffUser'),
@@ -236,6 +237,8 @@ export const adminService = {
   updateVendor: (id: string, data: VendorInput) => wrap(fns.updateVendor({ vendorId: id, ...data }), 'Could not update the vendor.'),
   deactivateVendor: (id: string) => wrap(fns.deactivateVendor({ vendorId: id }), 'Could not deactivate the vendor.'),
   reactivateVendor: (id: string) => wrap(fns.reactivateVendor({ vendorId: id }), 'Could not reactivate the vendor.'),
+  /** Email the vendor their activation instructions again. */
+  sendVendorInvite: (id: string) => wrap(fns.sendVendorInvite({ vendorId: id }), 'Could not send the email.'),
   /** Category team: add their category to a vendor created by another team. */
   linkVendor: (vendorCode: string, email: string, categories: Category[]) => wrap(fns.linkVendor({ vendorCode, email, categories }), 'Could not add the vendor.'),
 

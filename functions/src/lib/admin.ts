@@ -19,6 +19,7 @@ export const COL = {
   documents: 'podDocuments',
   history: 'podStatusHistory',
   notifications: 'notifications',
+  mail: 'mail',
   counters: 'counters',
   uniqueKeys: 'uniqueKeys',
 } as const;

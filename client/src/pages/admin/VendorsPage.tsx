@@ -243,7 +243,7 @@ export default function VendorsPage() {
         onClose={closeForm}
         vendor={editing}
         onSaved={(v) => {
-          toast(editing ? `${v.vendorName} updated` : `${v.vendorName} created. Share the vendor code ${v.vendorCode} and registered email with the vendor for first-time login.`);
+          toast(editing ? `${v.vendorName} updated` : `${v.vendorName} created. An activation email with vendor code ${v.vendorCode} has been sent to the vendor.`);
           refresh();
         }}
       />

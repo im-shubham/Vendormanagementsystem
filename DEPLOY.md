@@ -121,3 +121,50 @@ Merge to `main`, or open **Actions → Test & Deploy (Firebase) → Run workflow
 Bucket CORS and the first admin (Part 2, steps 6–7) are still one-time manual steps.
 
 After the first deploy, delete the downloaded key file from your computer. You can rotate the key at any time in the service-account page.
+
+---
+
+## Part 4 – Email notifications (one-time, about 10 minutes)
+
+The portal queues every email in the Firestore collection **`mail`**. Firebase's official **Trigger Email from Firestore** extension picks them up and sends them through your SMTP mailbox. Until the extension is installed, emails just wait in that collection. In-app notifications work either way.
+
+**Who gets what**
+
+| Event | In-app + email to |
+|---|---|
+| Vendor added (by Admin or Category team) | Vendor: activation email with vendor code (in-app note to Admins + that category team) |
+| Vendor completes First-Time Login | Admins + category team(s) of the vendor: approval request |
+| Registration approved / rejected | Vendor |
+| Vendor uploads a POD | Category team of that category + all Admins (vendor gets a confirmation) |
+| Category team uploads on a vendor's behalf | Vendor + Admins (+ Billing if "forward now") |
+| New copy uploaded after send-back | Category team + Admins |
+| Forwarded to billing | Billing team + all Admins (vendor in-app) |
+| Sent back | Vendor + category team + Admins |
+| Marked billed | Category team + Admins + vendor |
+
+The person who did the action is never notified about it.
+
+**1. Choose a sender mailbox.** Options:
+* **RCPL / office mailbox**: ask IT for SMTP details (host, port, username, password, or an SMTP relay). Microsoft 365 is usually `smtp.office365.com`, port 587, and SMTP AUTH must be enabled for that mailbox.
+* **Gmail (quick for testing)**: turn on 2-Step Verification, then create an **App Password** at <https://myaccount.google.com/apppasswords>.
+* **Email service** (SendGrid, Brevo, Mailgun): use the SMTP credentials they give you.
+
+**2. Install the extension.** Firebase console → **Build → Extensions** (or <https://extensions.dev/extensions/firebase/firestore-send-email>) → **Trigger Email from Firestore** → **Install** → choose `rcpl-pod-prod`. Settings:
+
+| Setting | Value |
+|---|---|
+| Firestore Instance ID | `(default)` |
+| Firestore Instance Location | `asia-south1` |
+| Authentication Type | Username & Password |
+| SMTP connection URI | Gmail: `smtps://your.name@gmail.com@smtp.gmail.com:465` · Office 365: `smtp://pod.portal@yourcompany.com@smtp.office365.com:587` |
+| SMTP password | the App Password / mailbox password (stored securely in Secret Manager) |
+| Email documents collection | `mail` |
+| Default FROM address | `RCPL POD Portal <the sender address>` |
+| Default REPLY-TO address | your team's address (optional) |
+| Users collection / Templates collection | leave empty |
+
+Installing takes 3–5 minutes.
+
+**3. Check it works.** Upload a POD, then open Firestore → `mail`. Each email document gets a `delivery.state` field: `SUCCESS` means it was sent, and `ERROR` shows the SMTP error message.
+
+**4. Links in emails** point to `APP_URL` in `functions/.env` (default `https://<project-id>.web.app`). Deploy the website (`npm run deploy`) so those links work. To pause email, set `EMAIL_ENABLED=false` in `functions/.env` and redeploy the functions.

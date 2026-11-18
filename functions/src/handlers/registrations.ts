@@ -3,7 +3,7 @@ import { COL, FieldValue, db } from '../lib/admin';
 import { conflict, notFound } from '../lib/errors';
 import { requireStaff } from '../lib/guards';
 import { assertVendorAccess } from './vendors';
-import { notifyVendor } from '../lib/notifications';
+import { notify } from '../lib/notifications';
 import { parse, schemas } from '../lib/validation';
 
 /** Admin, or the category team of the vendor's categories: approve / reject a first-time registration. */
@@ -12,7 +12,7 @@ export const reviewVendorRegistration = onCall(async (req) => {
   const { requestId, decision, remarks } = parse(schemas.reviewRegistration, req.data);
   const reqRef = db.collection(COL.registrations).doc(requestId);
 
-  const vendorId = await db.runTransaction(async (tx) => {
+  const { vendorId, vendorName } = await db.runTransaction(async (tx) => {
     const r = await tx.get(reqRef);
     if (!r.exists) throw notFound('Registration request not found.');
     if (r.get('approvalStatus') !== 'PENDING') throw conflict('This registration request has already been reviewed.');
@@ -23,11 +23,19 @@ export const reviewVendorRegistration = onCall(async (req) => {
     const now = FieldValue.serverTimestamp();
     tx.update(reqRef, { approvalStatus: decision, remarks, reviewedAt: now, reviewedBy: admin.uid, reviewedByName: admin.name });
     tx.update(vRef, { accountStatus: decision === 'APPROVED' ? 'ACTIVE' : 'REJECTED', updatedAt: now });
-    return vRef.id;
+    return { vendorId: vRef.id, vendorName: (v.get('vendorName') as string) ?? 'Vendor' };
   });
 
-  if (decision === 'APPROVED') {
-    await notifyVendor(vendorId, { title: 'Account approved', message: 'Welcome to the RCPL Vendor POD Portal. Your account has been approved.', link: '/vendor' });
-  }
+  await notify(
+    { vendorId },
+    decision === 'APPROVED'
+      ? { title: 'Account approved', message: 'Welcome to the RCPL Vendor POD Portal. Your account has been approved — you can now log in and upload POD documents.', link: '/login' }
+      : { title: 'Registration not approved', message: `Your vendor portal registration was not approved${remarks ? `: ${remarks}` : ''}. Please contact the RCPL team.`, link: '/login' },
+  );
+  await notify(
+    { admins: true },
+    { title: decision === 'APPROVED' ? 'Vendor approved' : 'Vendor registration rejected', message: `Registration of ${vendorName} was ${decision === 'APPROVED' ? 'approved' : 'rejected'} by ${admin.name}.`, link: `/admin/vendors/${vendorId}` },
+    { exceptUid: admin.uid, email: false },
+  );
   return { vendorId, accountStatus: decision === 'APPROVED' ? 'ACTIVE' : 'REJECTED' };
 });

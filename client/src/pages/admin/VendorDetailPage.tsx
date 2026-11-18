@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Ban, CheckCircle2, Pencil, RotateCcw, XCircle } from 'lucide-react';
+import { ArrowLeft, Ban, CheckCircle2, Mail, Pencil, RotateCcw, XCircle } from 'lucide-react';
 import { useAsync } from '@/hooks/useAsync';
 import { useAuth } from '@/context/AuthContext';
 import { adminService } from '@/services/adminService';
@@ -82,7 +82,28 @@ export default function VendorDetailPage() {
         </Alert>
       )}
       {v.accountStatus === 'NOT_REGISTERED' && (
-        <Alert kind="info">This vendor has not created a password yet. Share the vendor code <b>{v.vendorCode}</b> and registered email so they can use “First-Time Login”.</Alert>
+        <Alert kind="info" title="Waiting for the vendor to activate">
+          <p>
+            An activation email was sent to <b>{v.email}</b> with the vendor code <b>{v.vendorCode}</b>. Once the vendor creates a password (First-Time Login), an approval request appears under <b>Registration Requests</b> and you are notified.
+          </p>
+          <div className="mt-3">
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<Mail className="h-4 w-4" />}
+              onClick={async () => {
+                try {
+                  await adminService.sendVendorInvite(v.id);
+                  toast(`Activation email sent to ${v.email}`);
+                } catch (e) {
+                  toast(e instanceof Error ? e.message : 'Could not send the email', 'error');
+                }
+              }}
+            >
+              Resend activation email
+            </Button>
+          </div>
+        </Alert>
       )}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
