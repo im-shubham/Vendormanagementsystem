@@ -1,28 +1,75 @@
 import { onCall } from 'firebase-functions/https';
 import { logger } from 'firebase-functions';
+import { z } from 'zod';
 import { COL, FieldValue, adminAuth, db } from '../lib/admin';
-import { alreadyExists, conflict, invalid, notFound } from '../lib/errors';
-import { requireAdmin, requireStaff } from '../lib/guards';
+import { CATEGORY_LABELS, type Category } from '../lib/constants';
+import { alreadyExists, conflict, denied, invalid, notFound } from '../lib/errors';
+import { requireStaff, type StaffCaller } from '../lib/guards';
 import { uniqueKey } from '../lib/keys';
 import { notifyVendor } from '../lib/notifications';
 import { buildSearchKeywords } from '../lib/search';
-import { docId, parse, schemas } from '../lib/validation';
-import { z } from 'zod';
+import { categoriesSchema, docId, emailSchema, parse, schemas, vendorCodeSchema } from '../lib/validation';
+
+/**
+ * Vendor master. Admin: full access. Category team: vendors that supply any
+ * of their categories — create, edit, add/remove THEIR categories,
+ * deactivate/reactivate. Other teams' categories on a vendor are never touched
+ * by a category user.
+ */
 
 const keywords = (v: { vendorName: string; vendorCode: string; email: string; contactPerson?: string }) =>
   buildSearchKeywords(v.vendorName, v.vendorCode, v.email, v.contactPerson);
 
-/** Admin: create a vendor master record (status NOT_REGISTERED). */
+const VENDOR_ROLES = ['ADMIN', 'CATEGORY'] as const;
+
+/** Category users may only manage vendors that share at least one of their categories. */
+function assertVendorAccess(staff: StaffCaller, vendorCategories: Category[]) {
+  if (staff.role === 'ADMIN') return;
+  if (!vendorCategories.some((c) => staff.categories.includes(c))) throw notFound('Vendor not found.');
+}
+
+/** Category users can only assign their own categories. */
+function assertOwnCategories(staff: StaffCaller, categories: Category[]) {
+  if (staff.role === 'ADMIN') return;
+  const foreign = categories.filter((c) => !staff.categories.includes(c));
+  if (foreign.length) {
+    throw denied(`You can only assign your own categories. Not assigned to you: ${foreign.map((c) => CATEGORY_LABELS[c]).join(', ')}.`);
+  }
+}
+
+/**
+ * Merge a category user's edit into the vendor's categories: they can add or
+ * remove their own categories; categories of other teams are kept.
+ */
+function mergeCategories(staff: StaffCaller, current: Category[], requested: Category[]): Category[] {
+  if (staff.role === 'ADMIN') return [...new Set(requested)].sort();
+  const others = current.filter((c) => !staff.categories.includes(c));
+  const mine = requested.filter((c) => staff.categories.includes(c));
+  return [...new Set([...others, ...mine])].sort() as Category[];
+}
+
+/** Keep the categories copied onto registration requests in sync (used by security rules). */
+async function syncRegistrationCategories(vendorId: string, categories: Category[]) {
+  const regs = await db.collection(COL.registrations).where('vendorId', '==', vendorId).get();
+  if (regs.empty) return;
+  const batch = db.batch();
+  regs.docs.forEach((r) => batch.update(r.ref, { categories }));
+  await batch.commit();
+}
+
+/** Create a vendor master record (status NOT_REGISTERED). */
 export const createVendor = onCall(async (req) => {
-  const admin = await requireAdmin(req);
+  const staff = await requireStaff(req, [...VENDOR_ROLES]);
   const input = parse(schemas.vendor, req.data);
+  assertOwnCategories(staff, input.categories);
   const ref = db.collection(COL.vendors).doc();
   await db.runTransaction(async (tx) => {
     const codeKey = uniqueKey.vendorCode(input.vendorCode);
     const emailKey = uniqueKey.vendorEmail(input.email);
     const [c, e] = await Promise.all([tx.get(codeKey), tx.get(emailKey)]);
-    if (c.exists) throw alreadyExists(`Vendor code ${input.vendorCode} is already in use.`);
-    if (e.exists) throw alreadyExists(`Email ${input.email} is already registered to another vendor.`);
+    const hint = staff.role === 'CATEGORY' ? ' If this vendor also supplies your category, use "Add Existing Vendor".' : '';
+    if (c.exists) throw alreadyExists(`Vendor code ${input.vendorCode} is already registered.${hint}`);
+    if (e.exists) throw alreadyExists(`Email ${input.email} is already registered to a vendor.${hint}`);
     const now = FieldValue.serverTimestamp();
     tx.create(codeKey, { kind: 'vendorCode', vendorId: ref.id });
     tx.create(emailKey, { kind: 'vendorEmail', vendorId: ref.id });
@@ -33,22 +80,53 @@ export const createVendor = onCall(async (req) => {
       registeredAt: null,
       createdAt: now,
       updatedAt: now,
-      createdBy: admin.uid,
+      createdBy: staff.uid,
+      createdByName: staff.name,
+      createdByRole: staff.role,
       searchKeywords: keywords(input),
     });
   });
   return { vendorId: ref.id };
 });
 
-/** Admin: edit vendor details. Email is locked once the vendor has a login. */
+/**
+ * Category team: add their category to a vendor that already exists (created
+ * by another team). Vendor code AND registered email must both match, so the
+ * vendor master cannot be browsed by guessing.
+ */
+export const linkVendorCategories = onCall(async (req) => {
+  const staff = await requireStaff(req, [...VENDOR_ROLES]);
+  const input = parse(z.object({ vendorCode: vendorCodeSchema, email: emailSchema, categories: categoriesSchema }), req.data);
+  assertOwnCategories(staff, input.categories);
+  const match = await db.collection(COL.vendors).where('vendorCode', '==', input.vendorCode).where('email', '==', input.email).limit(1).get();
+  if (match.empty) throw notFound('No vendor matches this vendor code and email.');
+  const ref = match.docs[0].ref;
+  const categories = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const current = (snap.get('categories') as Category[] | undefined) ?? [];
+    const merged = [...new Set([...current, ...input.categories])].sort() as Category[];
+    tx.update(ref, { categories: merged, updatedAt: FieldValue.serverTimestamp() });
+    return merged;
+  });
+  await syncRegistrationCategories(ref.id, categories);
+  return { vendorId: ref.id, vendorName: match.docs[0].get('vendorName') as string, categories };
+});
+
+/** Edit vendor details. Email is locked once the vendor has a login. */
 export const updateVendor = onCall(async (req) => {
-  await requireAdmin(req);
+  const staff = await requireStaff(req, [...VENDOR_ROLES]);
   const { vendorId, ...input } = parse(schemas.vendor.extend({ vendorId: docId }), req.data);
   const ref = db.collection(COL.vendors).doc(vendorId);
-  await db.runTransaction(async (tx) => {
+  const categories = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists) throw notFound('Vendor not found.');
     const cur = snap.data()!;
+    const currentCats = (cur.categories as Category[] | undefined) ?? [];
+    assertVendorAccess(staff, currentCats);
+    const nextCats = mergeCategories(staff, currentCats, input.categories);
+    if (!nextCats.length) {
+      throw invalid('A vendor needs at least one category. Deactivate the vendor instead of removing every category.', { categories: 'Keep at least one category' });
+    }
     if (cur.authUid && cur.email !== input.email) {
       throw invalid('The registered email cannot be changed after the vendor has activated their login.', { email: 'Email is locked after activation' });
     }
@@ -67,30 +145,33 @@ export const updateVendor = onCall(async (req) => {
       tx.delete(uniqueKey.vendorEmail(cur.email));
       tx.create(newEmail, { kind: 'vendorEmail', vendorId });
     }
-    tx.update(ref, { ...input, searchKeywords: keywords(input), updatedAt: FieldValue.serverTimestamp() });
+    tx.update(ref, { ...input, categories: nextCats, searchKeywords: keywords(input), updatedAt: FieldValue.serverTimestamp() });
     if (cur.authUid) tx.update(db.collection(COL.userProfiles).doc(cur.authUid), { fullName: input.vendorName });
+    return nextCats;
   });
-  return { vendorId };
+  await syncRegistrationCategories(vendorId, categories);
+  return { vendorId, categories };
 });
 
 /**
- * Admin: deactivate (soft delete). Historical PODs are preserved. The login
- * is disabled and its refresh tokens revoked, so access ends immediately.
+ * Deactivate (soft delete). Historical PODs are preserved. The login is
+ * disabled and its refresh tokens revoked, so access ends immediately.
  */
 export const deactivateVendor = onCall(async (req) => {
-  const admin = await requireAdmin(req);
+  const staff = await requireStaff(req, [...VENDOR_ROLES]);
   const { vendorId } = parse(z.object({ vendorId: docId }), req.data);
   const ref = db.collection(COL.vendors).doc(vendorId);
   const authUid = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists) throw notFound('Vendor not found.');
+    assertVendorAccess(staff, snap.get('categories') ?? []);
     if (snap.get('accountStatus') === 'DEACTIVATED') throw conflict('Vendor is already deactivated.');
     const pending = await tx.get(db.collection(COL.registrations).where('vendorId', '==', vendorId).where('approvalStatus', '==', 'PENDING'));
     const now = FieldValue.serverTimestamp();
     for (const r of pending.docs) {
-      tx.update(r.ref, { approvalStatus: 'REJECTED', reviewedAt: now, reviewedBy: admin.uid, reviewedByName: admin.name, remarks: 'Vendor deactivated' });
+      tx.update(r.ref, { approvalStatus: 'REJECTED', reviewedAt: now, reviewedBy: staff.uid, reviewedByName: staff.name, remarks: 'Vendor deactivated' });
     }
-    tx.update(ref, { accountStatus: 'DEACTIVATED', updatedAt: now });
+    tx.update(ref, { accountStatus: 'DEACTIVATED', updatedAt: now, deactivatedBy: staff.uid, deactivatedByName: staff.name });
     return snap.get('authUid') as string | null;
   });
   if (authUid) {
@@ -100,14 +181,15 @@ export const deactivateVendor = onCall(async (req) => {
   return { vendorId, accountStatus: 'DEACTIVATED' };
 });
 
-/** Admin: reactivate a DEACTIVATED or REJECTED vendor. */
+/** Reactivate a DEACTIVATED or REJECTED vendor. */
 export const reactivateVendor = onCall(async (req) => {
-  await requireAdmin(req);
+  const staff = await requireStaff(req, [...VENDOR_ROLES]);
   const { vendorId } = parse(z.object({ vendorId: docId }), req.data);
   const ref = db.collection(COL.vendors).doc(vendorId);
   const { authUid, next } = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists) throw notFound('Vendor not found.');
+    assertVendorAccess(staff, snap.get('categories') ?? []);
     if (!['DEACTIVATED', 'REJECTED'].includes(snap.get('accountStatus'))) throw conflict('Only deactivated or rejected vendors can be reactivated.');
     const uid = snap.get('authUid') as string | null;
     const status = uid ? 'ACTIVE' : 'NOT_REGISTERED';
@@ -146,3 +228,5 @@ export const listUploadVendors = onCall(async (req) => {
     .sort((a, b) => a.vendorName.localeCompare(b.vendorName));
   return { vendors };
 });
+
+export { assertVendorAccess };

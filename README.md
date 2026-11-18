@@ -4,8 +4,8 @@ A web application that moves Proof of Delivery (POD) handling for **Reliance Con
 
 * **Vendor Portal**: first-time account activation, login, password reset, dashboard, POD upload, submission history, rejection remarks, re-upload with version history, and real-time in-app notifications.
 * **Staff Portal** (one login page, content depends on role):
-  * **Admin**: everything below, plus the vendor master, vendor registration approvals and **Team & Access** (create Category/Billing/Admin logins).
-  * **Category team** (assigned to one or more of the 10 staples categories): sees only its categories' PODs, **uploads PODs on a vendor's behalf** (e.g. received on WhatsApp or email), **forwards to billing** or **sends back** for a new copy.
+  * **Admin**: full access to everything — all vendors (category-wise counts and filter), all registrations, all PODs — plus **Team & Access** (create Category/Billing/Admin logins).
+  * **Category team** (assigned to one or more of the 10 staples categories): sees only its categories' vendors and PODs; **creates vendors**, edits them, adds/removes **its own** categories on a vendor (other teams' categories are kept), **adds an existing vendor** registered by another team (vendor code + email), approves/rejects vendor registrations and deactivates vendors of its categories; **uploads PODs on a vendor's behalf** (e.g. received on WhatsApp or email), **forwards to billing** or **sends back** for a new copy.
   * **Billing team**: sees PODs forwarded to billing (all categories), **marks them billed** or sends back.
 
 **Categories:** Rice, Sugar, Flour, Spices, Edible Oils, Pulses, Salt, Ghee, Dry Fruits, Cereals. A vendor can supply several categories and picks one per POD.

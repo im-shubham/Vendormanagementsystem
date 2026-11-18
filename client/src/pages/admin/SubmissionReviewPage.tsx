@@ -134,7 +134,7 @@ export default function SubmissionReviewPage() {
             </dl>
           </Card>
           <Card>
-            <CardHeader title="Vendor" action={role === 'ADMIN' && <Link to={`/admin/vendors/${s.vendorId}`} className="link text-sm">View vendor</Link>} />
+            <CardHeader title="Vendor" action={role !== 'BILLING' && <Link to={`/admin/vendors/${s.vendorId}`} className="link text-sm">View vendor</Link>} />
             <dl className="grid grid-cols-2 gap-5 p-5 sm:p-6">
               <DetailItem label="Name">{vendor.name}</DetailItem>
               <DetailItem label="Code">{vendor.code}</DetailItem>

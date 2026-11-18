@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, Ban, CheckCircle2, Pencil, RotateCcw, XCircle } from 'lucide-react';
 import { useAsync } from '@/hooks/useAsync';
+import { useAuth } from '@/context/AuthContext';
 import { adminService } from '@/services/adminService';
 import { useToast } from '@/context/ToastContext';
 import { Card, CardHeader, DetailItem } from '@/components/ui/Card';
@@ -18,7 +19,8 @@ type Action = 'approve' | 'reject' | 'deactivate' | 'reactivate' | null;
 export default function VendorDetailPage() {
   const { id = '' } = useParams();
   const toast = useToast();
-  const { data, error, loading, reload } = useAsync(() => adminService.getVendor(id), [id]);
+  const { user } = useAuth();
+  const { data, error, loading, reload } = useAsync(() => adminService.getVendor(user!, id), [id]);
   const [editOpen, setEditOpen] = useState(false);
   const [action, setAction] = useState<Action>(null);
 

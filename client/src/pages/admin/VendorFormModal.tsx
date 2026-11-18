@@ -6,7 +6,9 @@ import { Alert } from '@/components/ui/Feedback';
 import { adminService } from '@/services/adminService';
 import { AppError } from '@/lib/errors';
 import type { Vendor, VendorInput } from '@/types';
-import { CategoryPicker } from '@/components/ui/CategoryChips';
+import { CategoryPicker, CategoryTags } from '@/components/ui/CategoryChips';
+import { useAuth } from '@/context/AuthContext';
+import type { Category } from '@/types';
 
 const empty: VendorInput = { vendorName: '', vendorCode: '', email: '', contactPerson: '', mobileNumber: '', address: '', categories: [] };
 
@@ -28,6 +30,11 @@ export function VendorFormModal({ open, onClose, vendor, onSaved }: { open: bool
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const emailLocked = !!vendor && vendor.accountStatus !== 'NOT_REGISTERED';
+  const { user } = useAuth();
+  const isCategory = user?.role === 'CATEGORY';
+  const myCategories = user?.categories ?? [];
+  // Categories managed by other teams are shown but cannot be changed by a category user.
+  const otherCategories: Category[] = isCategory ? (vendor?.categories ?? []).filter((c) => !myCategories.includes(c)) : [];
 
   useEffect(() => {
     if (!open) return;
@@ -40,9 +47,9 @@ export function VendorFormModal({ open, onClose, vendor, onSaved }: { open: bool
             contactPerson: vendor.contactPerson ?? '',
             mobileNumber: vendor.mobileNumber ?? '',
             address: vendor.address ?? '',
-            categories: vendor.categories ?? [],
+            categories: isCategory ? (vendor.categories ?? []).filter((c) => myCategories.includes(c)) : vendor.categories ?? [],
           }
-        : empty,
+        : { ...empty, categories: isCategory && myCategories.length === 1 ? [...myCategories] : [] },
     );
     setErrors({});
     setError(null);
@@ -52,7 +59,8 @@ export function VendorFormModal({ open, onClose, vendor, onSaved }: { open: bool
 
   const submit = async (e?: FormEvent) => {
     e?.preventDefault();
-    const errs = validate(form);
+    const errs = validate({ ...form, categories: [...otherCategories, ...form.categories] });
+    if (isCategory && !vendor && !form.categories.length) errs.categories = 'Select at least one of your categories';
     setErrors(errs);
     if (Object.keys(errs).length) return;
     setSaving(true);
@@ -64,7 +72,7 @@ export function VendorFormModal({ open, onClose, vendor, onSaved }: { open: bool
       contactPerson: form.contactPerson.trim(),
       mobileNumber: form.mobileNumber.trim(),
       address: form.address.trim(),
-      categories: form.categories,
+      categories: [...otherCategories, ...form.categories],
     };
     try {
       if (vendor) await adminService.updateVendor(vendor.id, payload);
@@ -118,7 +126,19 @@ export function VendorFormModal({ open, onClose, vendor, onSaved }: { open: bool
           <TextField label="Mobile Number" required type="tel" value={form.mobileNumber} onChange={set('mobileNumber')} error={errors.mobileNumber} placeholder="+91 98XXX XXXXX" />
         </div>
         <TextArea label="Company Address" required rows={3} value={form.address} onChange={set('address')} error={errors.address} maxLength={500} />
-        <CategoryPicker required label="Categories supplied" value={form.categories} onChange={(c) => setForm((f) => ({ ...f, categories: c }))} error={errors.categories} />
+        <CategoryPicker
+          required={!otherCategories.length}
+          label={isCategory ? 'Your categories this vendor supplies' : 'Categories supplied'}
+          options={isCategory ? myCategories : undefined}
+          value={form.categories}
+          onChange={(c) => setForm((f) => ({ ...f, categories: c }))}
+          error={errors.categories}
+        />
+        {otherCategories.length > 0 && (
+          <p className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
+            Also supplies (managed by other teams): <CategoryTags categories={otherCategories} max={10} />
+          </p>
+        )}
         <button type="submit" className="hidden" />
       </form>
     </Modal>

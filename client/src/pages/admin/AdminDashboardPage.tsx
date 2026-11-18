@@ -55,7 +55,7 @@ export default function AdminDashboardPage() {
 
       {vendors && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <KpiCard label="Total Vendors" value={vendors.total} tone="blue" icon={<Users className="h-7 w-7" />} to="/admin/vendors" hint={`${vendors.notRegistered} not yet registered`} />
+          <KpiCard label={role === 'CATEGORY' ? 'My Vendors' : 'Total Vendors'} value={vendors.total} tone="blue" icon={<Users className="h-7 w-7" />} to="/admin/vendors" hint={`${vendors.notRegistered} not yet registered`} />
           <KpiCard label="Active Vendors" value={vendors.active} tone="green" icon={<UserCheck className="h-7 w-7" />} to="/admin/vendors?status=ACTIVE" />
           <KpiCard label="Pending Vendor Approvals" value={vendors.pendingApproval} tone="violet" icon={<UserPlus className="h-7 w-7" />} to="/admin/registrations" />
         </div>
@@ -113,7 +113,7 @@ export default function AdminDashboardPage() {
         </Card>
       </div>
 
-      <div className={role === 'ADMIN' ? 'grid gap-6 2xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]' : ''}>
+      <div className={vendors ? 'grid gap-6 2xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]' : ''}>
         <Card className="overflow-hidden">
           <CardHeader title="Recent PODs" action={recentSubmissions.length > 0 && <ViewAllLink to={SUB} />} />
           <div className="mt-4">
@@ -124,7 +124,7 @@ export default function AdminDashboardPage() {
             )}
           </div>
         </Card>
-        {role === 'ADMIN' && (
+        {vendors && (
           <Card className="overflow-hidden">
             <CardHeader title="Pending Approvals" subtitle="First-time vendor registrations" action={pendingRegistrations.length > 0 && <ViewAllLink to="/admin/registrations" />} />
             {pendingRegistrations.length ? (

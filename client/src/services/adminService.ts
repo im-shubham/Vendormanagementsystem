@@ -28,6 +28,7 @@ const fns = {
   podAction: callFn<{ submissionId: string; action: 'FORWARD' | 'SEND_BACK' | 'MARK_BILLED'; remarks?: string | null }, { submissionId: string; status: string }>('updatePodStatus'),
   listUploadVendors: callFn<void, { vendors: UploadVendor[] }>('listUploadVendors'),
   createPod: callFn<Record<string, unknown>, { submissionId: string; submissionNumber: string; status: string }>('createPodSubmission'),
+  linkVendor: callFn<{ vendorCode: string; email: string; categories: Category[] }, { vendorId: string; vendorName: string; categories: Category[] }>('linkVendorCategories'),
   createStaff: callFn<StaffInput, { uid: string }>('createStaffUser'),
   updateStaff: callFn<StaffInput & { uid: string }, { uid: string }>('updateStaffUser'),
   setStaffActive: callFn<{ uid: string; active: boolean }, { uid: string; active: boolean }>('setStaffActive'),
@@ -56,6 +57,20 @@ async function podStats(scope: QueryConstraint[]): Promise<PodStats> {
   return { SUBMITTED: counts[0], RESUBMISSION_REQUESTED: counts[1], FORWARDED_TO_BILLING: counts[2], BILLED: counts[3], total: counts.reduce((a, b) => a + b, 0) };
 }
 
+/** Vendors / registration requests visible to a category user: categories array-contains-any theirs. */
+function vendorScope(user: User, category?: string): QueryConstraint[] {
+  if (category) return [where('categories', 'array-contains', category)];
+  if (user.role === 'CATEGORY') return [where('categories', 'array-contains-any', user.categories.length ? user.categories.slice(0, 30) : ['__none__'])];
+  return [];
+}
+
+/** Firestore allows one array filter per query: category users search locally within their scope. */
+async function localSearch<T>(q: ReturnType<typeof query>, map: (d: any) => T, text: (t: T) => string, term: string): Promise<Page<T>> {
+  const snap = await getDocs(query(q, limit(1000)));
+  const items = snap.docs.map(map).filter((x) => text(x).toLowerCase().includes(term));
+  return { items, total: items.length, last: null, pageSize: Math.max(items.length, 1) };
+}
+
 async function getVendorSnap(id: string) {
   const snap = await getDoc(doc(db, 'vendors', id));
   if (!snap.exists()) throw new AppError('Vendor not found.', 'NOT_FOUND');
@@ -68,13 +83,16 @@ export const adminService = {
       (async (): Promise<AdminDashboard> => {
         const scope = scopeConstraints(user);
         const isAdmin = user.role === 'ADMIN';
-        const vendorsCol = collection(db, 'vendors');
+        const managesVendors = isAdmin || user.role === 'CATEGORY';
+        const vendorsCol = query(collection(db, 'vendors'), ...vendorScope(user));
         const byStatus = (s: string) => count(query(vendorsCol, where('accountStatus', '==', s)));
         const [pods, recent, vendorCounts, regs] = await Promise.all([
           podStats(scope),
           getDocs(query(collection(db, 'podSubmissions'), ...scope, orderBy('submittedAt', 'desc'), limit(6))),
-          isAdmin ? Promise.all([count(vendorsCol), byStatus('ACTIVE'), byStatus('PENDING_APPROVAL'), byStatus('NOT_REGISTERED'), byStatus('DEACTIVATED')]) : null,
-          isAdmin ? getDocs(query(collection(db, 'vendorRegistrationRequests'), where('approvalStatus', '==', 'PENDING'), orderBy('requestedAt', 'asc'), limit(5))) : null,
+          managesVendors ? Promise.all([count(vendorsCol), byStatus('ACTIVE'), byStatus('PENDING_APPROVAL'), byStatus('NOT_REGISTERED'), byStatus('DEACTIVATED')]) : null,
+          managesVendors
+            ? getDocs(query(collection(db, 'vendorRegistrationRequests'), ...vendorScope(user), where('approvalStatus', '==', 'PENDING'), orderBy('requestedAt', 'asc'), limit(5)))
+            : null,
         ]);
         return {
           vendors: vendorCounts
@@ -100,7 +118,9 @@ export const adminService = {
         const waitingStatus = user.role === 'BILLING' ? 'FORWARDED_TO_BILLING' : 'SUBMITTED';
         const [pods, registrations] = await Promise.all([
           count(query(col, ...scope, where('currentStatus', '==', waitingStatus))),
-          user.role === 'ADMIN' ? count(query(collection(db, 'vendorRegistrationRequests'), where('approvalStatus', '==', 'PENDING'))) : Promise.resolve(0),
+          user.role === 'BILLING'
+            ? Promise.resolve(0)
+            : count(query(collection(db, 'vendorRegistrationRequests'), ...vendorScope(user), where('approvalStatus', '==', 'PENDING'))),
         ]);
         return { pods, registrations };
       })(),
@@ -167,11 +187,27 @@ export const adminService = {
     }
   },
 
-  // ---- Vendors (Admin) ----
-  listVendors: async (p: ListParams, after: Cursor | null): Promise<Page<Vendor>> => {
+  // ---- Vendors (Admin: all · Category team: vendors of their categories) ----
+  /** Vendor counts per category (admin: all 10; category team: their own). */
+  categoryVendorCounts: (user: User) =>
+    wrap(
+      Promise.all(
+        (user.role === 'CATEGORY' ? user.categories : (['RICE', 'SUGAR', 'FLOUR', 'SPICES', 'EDIBLE_OILS', 'PULSES', 'SALT', 'GHEE', 'DRY_FRUITS', 'CEREALS'] as Category[])).map(
+          async (c) => ({ category: c, count: await count(query(collection(db, 'vendors'), where('categories', 'array-contains', c))) }),
+        ),
+      ),
+      'Could not load category counts.',
+    ),
+
+  listVendors: async (user: User, p: ListParams, after: Cursor | null): Promise<Page<Vendor>> => {
     const c: QueryConstraint[] = [];
     if (p.status) c.push(where('accountStatus', '==', p.status));
     const term = searchTerm(p.search);
+    if (user.role === 'CATEGORY') {
+      const base = query(collection(db, 'vendors'), ...vendorScope(user, p.category), ...c, orderBy('createdAt', 'desc'));
+      if (term) return wrap(localSearch(base, toVendor, (v) => `${v.vendorName} ${v.vendorCode} ${v.email} ${v.contactPerson ?? ''}`, term), 'Could not load vendors.');
+      return wrap(fetchPage(query(collection(db, 'vendors'), ...vendorScope(user, p.category), ...c), [orderBy('createdAt', 'desc')], toVendor, p.pageSize ?? 10, after), 'Could not load vendors.');
+    }
     // Firestore allows one array-contains per query: search takes priority, category is then filtered locally.
     if (term) c.push(where('searchKeywords', 'array-contains', term));
     else if (p.category) c.push(where('categories', 'array-contains', p.category));
@@ -180,14 +216,16 @@ export const adminService = {
     return page;
   },
 
-  getVendor: (id: string) =>
+  getVendor: (user: User, id: string) =>
     wrap(
       (async (): Promise<VendorDetail> => {
+        // Category users only see their categories' PODs / requests of this vendor.
+        const podScope = user.role === 'CATEGORY' ? [where('category', 'in', user.categories.slice(0, 30))] : [];
         const [snap, stats, regs, recent] = await Promise.all([
           getVendorSnap(id),
-          podStats([where('vendorId', '==', id)]),
-          getDocs(query(collection(db, 'vendorRegistrationRequests'), where('vendorId', '==', id), orderBy('requestedAt', 'desc'))),
-          getDocs(query(collection(db, 'podSubmissions'), where('vendorId', '==', id), orderBy('submittedAt', 'desc'), limit(10))),
+          podStats([where('vendorId', '==', id), ...podScope]),
+          getDocs(query(collection(db, 'vendorRegistrationRequests'), where('vendorId', '==', id), ...vendorScope(user), orderBy('requestedAt', 'desc'))),
+          getDocs(query(collection(db, 'podSubmissions'), where('vendorId', '==', id), ...podScope, orderBy('submittedAt', 'desc'), limit(10))),
         ]);
         return { vendor: toVendor(snap), stats, registrations: regs.docs.map(toRegistration), recentSubmissions: recent.docs.map(toSubmission) };
       })(),
@@ -198,12 +236,19 @@ export const adminService = {
   updateVendor: (id: string, data: VendorInput) => wrap(fns.updateVendor({ vendorId: id, ...data }), 'Could not update the vendor.'),
   deactivateVendor: (id: string) => wrap(fns.deactivateVendor({ vendorId: id }), 'Could not deactivate the vendor.'),
   reactivateVendor: (id: string) => wrap(fns.reactivateVendor({ vendorId: id }), 'Could not reactivate the vendor.'),
+  /** Category team: add their category to a vendor created by another team. */
+  linkVendor: (vendorCode: string, email: string, categories: Category[]) => wrap(fns.linkVendor({ vendorCode, email, categories }), 'Could not add the vendor.'),
 
-  // ---- Registrations (Admin) ----
-  listRegistrations: (p: ListParams, after: Cursor | null): Promise<Page<RegistrationRequest>> => {
+  // ---- Registrations (Admin · Category team for their vendors) ----
+  listRegistrations: (user: User, p: ListParams, after: Cursor | null): Promise<Page<RegistrationRequest>> => {
     const c: QueryConstraint[] = [];
     if (p.status) c.push(where('approvalStatus', '==', p.status));
     const term = searchTerm(p.search);
+    if (user.role === 'CATEGORY') {
+      const base = query(collection(db, 'vendorRegistrationRequests'), ...vendorScope(user), ...c, orderBy('requestedAt', 'desc'));
+      if (term) return wrap(localSearch(base, toRegistration, (r) => `${r.vendor?.vendorName} ${r.vendor?.vendorCode} ${r.vendor?.email}`, term), 'Could not load registration requests.');
+      return wrap(fetchPage(query(collection(db, 'vendorRegistrationRequests'), ...vendorScope(user), ...c), [orderBy('requestedAt', 'desc')], toRegistration, p.pageSize ?? 10, after), 'Could not load registration requests.');
+    }
     if (term) c.push(where('searchKeywords', 'array-contains', term));
     return wrap(
       fetchPage(query(collection(db, 'vendorRegistrationRequests'), ...c), [orderBy('requestedAt', 'desc')], toRegistration, p.pageSize ?? 10, after),

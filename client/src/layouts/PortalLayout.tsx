@@ -47,13 +47,13 @@ function staffNav(user: User | null, counts: { pods: number; registrations: numb
     { to: '/admin/submissions', label: role === 'BILLING' ? 'PODs for Billing' : 'POD Submissions', icon: ClipboardCheck, badge: counts.pods },
   ];
   if (role === 'ADMIN' || role === 'CATEGORY') items.push({ to: '/admin/upload', label: 'Upload POD', icon: UploadCloud });
-  if (role === 'ADMIN') {
+  if (role === 'ADMIN' || role === 'CATEGORY') {
     items.push(
       { to: '/admin/vendors', label: 'Vendors', icon: Users },
       { to: '/admin/registrations', label: 'Registration Requests', icon: UserPlus, badge: counts.registrations },
-      { to: '/admin/team', label: 'Team & Access', icon: ShieldCheck },
     );
   }
+  if (role === 'ADMIN') items.push({ to: '/admin/team', label: 'Team & Access', icon: ShieldCheck });
   items.push({ to: '/admin/notifications', label: 'Notifications', icon: Bell });
   return items;
 }

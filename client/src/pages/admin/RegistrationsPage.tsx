@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { CheckCircle2, Search, UserCheck, XCircle } from 'lucide-react';
 import clsx from 'clsx';
 import { usePagedQuery } from '@/hooks/usePagedQuery';
+import { useAuth } from '@/context/AuthContext';
 import { useDebounce } from '@/hooks/useDebounce';
 import { adminService } from '@/services/adminService';
 import { useToast } from '@/context/ToastContext';
@@ -29,11 +30,15 @@ export default function RegistrationsPage() {
   const [search, setSearch] = useState('');
   const [acting, setActing] = useState<{ req: RegistrationRequest; kind: 'approve' | 'reject' } | null>(null);
   const q = useDebounce(search);
-  const { data, error, loading, reload, page, setPage } = usePagedQuery((after) => adminService.listRegistrations({ pageSize: PAGE_SIZE, status: tab, search: q }, after), [tab, q]);
+  const { user } = useAuth();
+  const { data, error, loading, reload, page, setPage } = usePagedQuery((after) => adminService.listRegistrations(user!, { pageSize: PAGE_SIZE, status: tab, search: q }, after), [tab, q]);
 
   return (
     <div>
-      <PageHeader title="Registration Requests" subtitle="Vendors who completed first-time activation. Approve to grant portal access." />
+      <PageHeader
+        title="Registration Requests"
+        subtitle={user?.role === 'CATEGORY' ? 'Vendors of your categories who completed first-time activation. Approve to grant portal access.' : 'Vendors who completed first-time activation. Approve to grant portal access.'}
+      />
       <Card className="overflow-hidden">
         <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div className="flex gap-1 overflow-x-auto rounded-xl bg-slate-100 p-1" role="tablist">
@@ -112,7 +117,7 @@ export default function RegistrationsPage() {
                 </table>
               </div>
             )}
-            <Pagination page={page} pageSize={PAGE_SIZE} total={data.total} onChange={setPage} />
+            <Pagination page={page} pageSize={data.pageSize ?? PAGE_SIZE} total={data.total} onChange={setPage} />
           </div>
         )}
       </Card>

@@ -78,6 +78,11 @@ const STATUS_MAP: Record<string, string> = {
     }
   }
 
+  // Registration requests carry the vendor's categories (used by security rules).
+  for (const r of (await db.collection(COL.registrations).get()).docs) {
+    if (r.get('categories') === undefined && !dry) await r.ref.update({ categories: vendorCats.get(r.get('vendorId')) ?? [] });
+  }
+
   const staff = await db.collection(COL.userProfiles).where('role', 'in', ['ADMIN', 'CATEGORY', 'BILLING']).get();
   for (const p of staff.docs) {
     if (p.get('active') === undefined && !dry) await p.ref.update({ active: true, categories: p.get('categories') ?? [] });

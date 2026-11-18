@@ -5,7 +5,8 @@ rules_version = '2';
 //
 // Roles (custom claim `role`, set ONLY by Cloud Functions / admin script):
 //   ADMIN     everything
-//   CATEGORY  vendors + PODs of the categories on their profile
+//   CATEGORY  vendors, registration requests and PODs of the categories on
+//             their profile (vendor writes go through Functions)
 //   BILLING   PODs that have been forwarded to billing
 //   VENDOR    own vendor record; own PODs only while the account is ACTIVE
 // Staff profiles must be active; category assignments are read from the
@@ -59,8 +60,11 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Requests carry a copy of the vendor's categories (kept in sync by Functions).
     match /vendorRegistrationRequests/{requestId} {
-      allow read: if isAdmin() || (isVendor() && resource.data.vendorId == myVendorId());
+      allow read: if isAdmin()
+        || (isVendor() && resource.data.vendorId == myVendorId())
+        || (isCategory() && resource.data.get('categories', []).hasAny(myCategories()));
       allow write: if false;
     }
 

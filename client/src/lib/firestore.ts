@@ -9,6 +9,8 @@ export interface Page<T> {
   items: T[];
   total: number;
   last: Cursor | null;
+  /** Set when every match is returned at once (client-side search). */
+  pageSize?: number;
 }
 
 /** Cursor-based page + total count (counts are cheap aggregation queries). */

@@ -277,6 +277,64 @@ async function main() {
     await expectError(getDoc(doc(vA.db, 'podSubmissions', sid)), denied, 'vendor A reads vendor B POD');
   });
 
+  console.info('\nCategory teams manage vendors');
+  const vendorC = { ...base, vendorCode: `E2EC${run}`.slice(0, 30), vendorName: `E2E Gamma Multi ${run}`, email: `gamma.${lc}@example.com`, categories: ['RICE'] };
+  let vendorCId = '';
+  await step('Category team creates vendors only with its own categories', async () => {
+    await expectError(catRice.call('createVendor', { ...vendorC, categories: ['SUGAR'] }), denied, 'foreign category');
+    vendorCId = (await catRice.call<{ vendorId: string }>('createVendor', vendorC)).vendorId;
+    const v = await getDoc(doc(catRice.db, 'vendors', vendorCId));
+    assert(v.get('createdByRole') === 'CATEGORY', 'created by category');
+    const list = await getDocs(query(collection(catRice.db, 'vendors'), where('categories', 'array-contains-any', ['RICE'])));
+    assert(list.docs.some((d) => d.id === vendorCId), 'rice team lists vendor');
+    await expectError(getDoc(doc(catSugar.db, 'vendors', vendorCId)), denied, 'sugar cannot see rice vendor yet');
+    await expectError(billing.call('createVendor', { ...vendorC, vendorCode: 'BILL1' }), denied, 'billing creates vendor');
+  });
+
+  await step('Another team links an existing vendor to its category (code + email must match)', async () => {
+    await expectError(catSugar.call('createVendor', { ...vendorC, categories: ['SUGAR'] }), fnCode('already-exists'), 'duplicate vendor');
+    await expectError(catSugar.call('linkVendorCategories', { vendorCode: vendorC.vendorCode, email: 'wrong@example.com', categories: ['SUGAR'] }), fnCode('not-found'), 'wrong email');
+    await expectError(catSugar.call('linkVendorCategories', { vendorCode: vendorC.vendorCode, email: vendorC.email, categories: ['RICE'] }), denied, 'link foreign category');
+    const r = await catSugar.call<{ categories: string[] }>('linkVendorCategories', { vendorCode: vendorC.vendorCode, email: vendorC.email, categories: ['SUGAR'] });
+    assert(JSON.stringify(r.categories) === '["RICE","SUGAR"]', `categories ${r.categories}`);
+    assert((await getDoc(doc(catSugar.db, 'vendors', vendorCId))).exists(), 'sugar now sees vendor');
+  });
+
+  await step('Category edits keep other teams’ categories; editing outside scope is refused', async () => {
+    await catSugar.call('updateVendor', { vendorId: vendorCId, ...vendorC, contactPerson: 'Sugar Edited', categories: ['SUGAR'] });
+    let v = await getDoc(doc(admin.db, 'vendors', vendorCId));
+    assert(JSON.stringify(v.get('categories')) === '["RICE","SUGAR"]' && v.get('contactPerson') === 'Sugar Edited', 'rice kept');
+    await catSugar.call('updateVendor', { vendorId: vendorCId, ...vendorC, categories: ['RICE'] }); // sugar removes itself
+    v = await getDoc(doc(admin.db, 'vendors', vendorCId));
+    assert(JSON.stringify(v.get('categories')) === '["RICE"]', `after removal ${v.get('categories')}`);
+    await expectError(catSugar.call('updateVendor', { vendorId: vendorCId, ...vendorC, categories: ['SUGAR'] }), fnCode('not-found'), 'sugar no longer has access');
+    await expectError(catRice.call('updateVendor', { vendorId: vendorBId, ...vendorB }), fnCode('not-found'), 'rice edits sugar vendor');
+    await catSugar.call('linkVendorCategories', { vendorCode: vendorC.vendorCode, email: vendorC.email, categories: ['SUGAR'] });
+  });
+
+  await step('Category team sees and approves registrations for its vendors; billing cannot', async () => {
+    const c = client('vendorC');
+    await c.call('activateVendorAccount', { email: vendorC.email, vendorCode: vendorC.vendorCode, password, confirmPassword: password });
+    const regs = await getDocs(query(collection(catSugar.db, 'vendorRegistrationRequests'), where('categories', 'array-contains-any', ['SUGAR']), where('approvalStatus', '==', 'PENDING')));
+    const reg = regs.docs.find((d) => d.get('vendorId') === vendorCId);
+    assert(reg, 'sugar team sees request');
+    assert((await notes(catRice)).some((x) => x.title === 'New vendor registration'), 'rice team notified');
+    await expectError(getDocs(query(collection(billing.db, 'vendorRegistrationRequests'), where('approvalStatus', '==', 'PENDING'))), denied, 'billing reads requests');
+    await expectError(billing.call('reviewVendorRegistration', { requestId: reg!.id, decision: 'APPROVED' }), denied, 'billing approves');
+    const hist = await getDocs(query(collection(catRice.db, 'vendorRegistrationRequests'), where('vendorId', '==', vendorCId), where('categories', 'array-contains-any', ['RICE'])));
+    assert(hist.size === 1, 'rice reads vendor registration history');
+    await catSugar.call('reviewVendorRegistration', { requestId: reg!.id, decision: 'APPROVED' });
+    assert((await getDoc(doc(admin.db, 'vendors', vendorCId))).get('accountStatus') === 'ACTIVE', 'approved by category');
+  });
+
+  await step('Category team deactivates / reactivates its vendor', async () => {
+    await catRice.call('deactivateVendor', { vendorId: vendorCId });
+    assert((await getDoc(doc(admin.db, 'vendors', vendorCId))).get('accountStatus') === 'DEACTIVATED', 'deactivated');
+    await expectError(catRice.call('deactivateVendor', { vendorId: vendorBId }), fnCode('not-found'), 'outside scope');
+    await catRice.call('reactivateVendor', { vendorId: vendorCId });
+    assert((await getDoc(doc(admin.db, 'vendors', vendorCId))).get('accountStatus') === 'ACTIVE', 'reactivated');
+  });
+
   console.info('\nAccess control');
   await step('Duplicate invoices are refused; vendors cannot change statuses', async () => {
     const id = newId(vA);

@@ -67,9 +67,9 @@ export default function App() {
               }
             >
               <Route index element={<AdminDashboardPage />} />
-              <Route path="vendors" element={<RoleGate roles={['ADMIN']}><VendorsPage /></RoleGate>} />
-              <Route path="vendors/:id" element={<RoleGate roles={['ADMIN']}><VendorDetailPage /></RoleGate>} />
-              <Route path="registrations" element={<RoleGate roles={['ADMIN']}><RegistrationsPage /></RoleGate>} />
+              <Route path="vendors" element={<RoleGate roles={['ADMIN', 'CATEGORY']}><VendorsPage /></RoleGate>} />
+              <Route path="vendors/:id" element={<RoleGate roles={['ADMIN', 'CATEGORY']}><VendorDetailPage /></RoleGate>} />
+              <Route path="registrations" element={<RoleGate roles={['ADMIN', 'CATEGORY']}><RegistrationsPage /></RoleGate>} />
               <Route path="team" element={<RoleGate roles={['ADMIN']}><TeamPage /></RoleGate>} />
               <Route path="upload" element={<RoleGate roles={['ADMIN', 'CATEGORY']}><StaffUploadPage /></RoleGate>} />
               <Route path="submissions" element={<AdminSubmissionsPage />} />

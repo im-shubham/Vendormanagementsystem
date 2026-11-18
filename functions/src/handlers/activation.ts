@@ -3,7 +3,8 @@ import { logger } from 'firebase-functions';
 import { COL, FieldValue, adminAuth, db } from '../lib/admin';
 import { ACCOUNT_MESSAGES, conflict, denied, invalid } from '../lib/errors';
 import { buildSearchKeywords } from '../lib/search';
-import { notifyAdmins } from '../lib/notifications';
+import { notifyAdmins, notifyCategory } from '../lib/notifications';
+import type { Category } from '../lib/constants';
 import { parse, schemas } from '../lib/validation';
 
 /**
@@ -68,6 +69,7 @@ export const activateVendorAccount = onCall(async (req) => {
         email,
         contactPerson: vendor.contactPerson ?? null,
         mobileNumber: vendor.mobileNumber ?? null,
+        categories: (vendor.categories as Category[] | undefined) ?? [],
         approvalStatus: 'PENDING',
         requestedAt: now,
         reviewedBy: null,
@@ -83,11 +85,12 @@ export const activateVendorAccount = onCall(async (req) => {
     throw err;
   }
 
-  await notifyAdmins({
+  const notice = {
     title: 'New vendor registration',
     message: `${vendor.vendorName} (${vendor.vendorCode}) has activated their account and is awaiting approval.`,
     link: '/admin/registrations',
-  });
+  };
+  await Promise.all([notifyAdmins(notice), ...(((vendor.categories as Category[] | undefined) ?? []).map((c) => notifyCategory(c, notice)))]);
 
   return { status: 'PENDING_APPROVAL', message: ACCOUNT_MESSAGES.PENDING_APPROVAL.message };
 });
