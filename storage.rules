@@ -1,0 +1,48 @@
+rules_version = '2';
+
+// =====================================================================
+// RCPL Vendor POD Management — Cloud Storage Security Rules
+//
+// Layout: pod-documents/{vendorId}/{submissionId}/version-{n}/{file}
+//   file = pod-document.(pdf|jpg|jpeg|png) | supporting-photo.(jpg|jpeg|png)
+//
+//  * Nothing is public. Reads need an admin claim, or the ACTIVE vendor
+//    that owns the folder.
+//  * Vendors may only CREATE new objects in their own folder (no overwrite,
+//    no delete), with type and size limits. A file only becomes part of a
+//    submission when the Cloud Function verifies and registers it.
+// =====================================================================
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isAdmin() {
+      return request.auth != null && request.auth.token.role == 'ADMIN';
+    }
+    function ownsFolder(vendorId) {
+      return request.auth != null
+        && request.auth.token.role == 'VENDOR'
+        && request.auth.token.vendorId == vendorId;
+    }
+    function vendorIsActive(vendorId) {
+      return firestore.get(/databases/(default)/documents/vendors/$(vendorId)).data.accountStatus == 'ACTIVE';
+    }
+    function validUpload(version, fileName) {
+      return version.matches('version-[1-9][0-9]{0,2}')
+        && fileName.matches('(pod-document[.](pdf|jpg|jpeg|png)|supporting-photo[.](jpg|jpeg|png))')
+        && request.resource.size > 0
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType.matches('application/pdf|image/jpeg|image/png');
+    }
+
+    match /pod-documents/{vendorId}/{submissionId}/{version}/{fileName} {
+      allow read: if isAdmin() || (ownsFolder(vendorId) && vendorIsActive(vendorId));
+      // resource == null: the object must not exist yet (no overwrites).
+      allow create: if resource == null && ownsFolder(vendorId) && vendorIsActive(vendorId) && validUpload(version, fileName);
+      allow update, delete: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

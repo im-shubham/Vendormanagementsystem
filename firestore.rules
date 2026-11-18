@@ -1,0 +1,88 @@
+rules_version = '2';
+
+// =====================================================================
+// RCPL Vendor POD Management — Firestore Security Rules
+//
+// Principles
+//  * Roles come ONLY from custom claims set by Cloud Functions / Admin SDK
+//    (request.auth.token.role / .vendorId). Clients can never set them.
+//  * Vendor approval is re-checked on every read from the vendor record,
+//    so a pending, rejected or deactivated vendor sees nothing.
+//  * Clients never write business data. All creates/updates go through
+//    Cloud Functions (Admin SDK), which bypass these rules deliberately.
+//    The only client write is marking one's own notification as read.
+// =====================================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+    function isAdmin() {
+      return signedIn() && request.auth.token.role == 'ADMIN';
+    }
+    function isVendor() {
+      return signedIn()
+        && request.auth.token.role == 'VENDOR'
+        && request.auth.token.vendorId is string;
+    }
+    function myVendorId() {
+      return request.auth.token.vendorId;
+    }
+    function vendorIsActive() {
+      return isVendor()
+        && get(/databases/$(database)/documents/vendors/$(myVendorId())).data.accountStatus == 'ACTIVE';
+    }
+    // Vendor-owned operational data: admin, or the ACTIVE owning vendor.
+    function canReadVendorData(data) {
+      return isAdmin() || (vendorIsActive() && data.vendorId == myVendorId());
+    }
+
+    // Vendor master. A vendor may read ONLY its own record (any status), so
+    // the app can show "awaiting approval" / "deactivated" screens.
+    match /vendors/{vendorId} {
+      allow read: if isAdmin() || (isVendor() && vendorId == myVendorId());
+      allow write: if false;
+    }
+
+    match /userProfiles/{uid} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      allow write: if false;
+    }
+
+    match /vendorRegistrationRequests/{requestId} {
+      allow read: if isAdmin() || (isVendor() && resource.data.vendorId == myVendorId());
+      allow write: if false;
+    }
+
+    match /podSubmissions/{submissionId} {
+      allow read: if canReadVendorData(resource.data);
+      allow write: if false;
+    }
+
+    match /podDocuments/{documentId} {
+      allow read: if canReadVendorData(resource.data);
+      allow write: if false;
+    }
+
+    match /podStatusHistory/{historyId} {
+      allow read: if canReadVendorData(resource.data);
+      allow write: if false;
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      // Only flip isRead -> true on one's own notification.
+      allow update: if signedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead'])
+        && request.resource.data.isRead == true;
+      allow create, delete: if false;
+    }
+
+    // Internal: counters, uniqueness keys, etc. Server only.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

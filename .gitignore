@@ -3,7 +3,16 @@ dist/
 .env
 .env.local
 *.log
-server/uploads/
 .DS_Store
 coverage/
 *.tsbuildinfo
+functions/lib/
+.emulator-data/
+firebase-debug*.log
+firestore-debug.log
+ui-debug.log
+database-debug.log
+pubsub-debug.log
+.firebase/
+*-service-account*.json
+serviceAccount*.json

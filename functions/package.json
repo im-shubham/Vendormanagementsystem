@@ -1,0 +1,29 @@
+{
+  "name": "rcpl-pod-functions",
+  "private": true,
+  "version": "2.0.0",
+  "main": "lib/index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "seed": "tsx scripts/seed-demo.ts",
+    "create-admin": "tsx scripts/create-admin.ts",
+    "test:e2e": "tsx test/e2e.test.ts",
+    "test:all": "tsx test/e2e.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "firebase": "^13.4.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "firebase-admin": "^14.5.1",
+    "firebase-functions": "^7.4.0",
+    "zod": "^4.6.7"
+  }
+}
