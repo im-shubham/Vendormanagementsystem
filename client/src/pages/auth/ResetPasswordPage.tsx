@@ -1,25 +1,44 @@
-import { useMemo, useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useState, type FormEvent } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Lock } from 'lucide-react';
 import { AuthLayout } from '@/layouts/AuthLayout';
 import { Button } from '@/components/ui/Button';
 import { PasswordField } from '@/components/ui/Field';
-import { Alert } from '@/components/ui/Feedback';
+import { Alert, Spinner } from '@/components/ui/Feedback';
 import { authService } from '@/services/authService';
-import { ApiError } from '@/services/apiClient';
+import { AppError } from '@/lib/errors';
 import { PasswordRules, passwordValid } from './PasswordRules';
 
-/** Reset links carry the token in the URL fragment: #access_token=...&type=recovery */
+/**
+ * Custom Firebase Auth action handler for password resets.
+ * Configure in Firebase Console → Authentication → Templates → Password reset
+ * → "Customize action URL" = https://<your-domain>/reset-password
+ * (Firebase appends ?mode=resetPassword&oobCode=...).
+ */
 export default function ResetPasswordPage() {
   const navigate = useNavigate();
-  const params = useMemo(() => new URLSearchParams(window.location.hash.replace(/^#/, '')), []);
-  const token = params.get('access_token') ?? '';
-  const linkError = params.get('error_description');
+  const [params] = useSearchParams();
+  const oobCode = params.get('oobCode') ?? '';
+  const [email, setEmail] = useState<string | null>(null);
+  const [checking, setChecking] = useState(true);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [errors, setErrors] = useState<{ password?: string; confirm?: string }>({});
-  const [error, setError] = useState<string | null>(linkError ?? (token ? null : 'This reset link is invalid or incomplete. Please request a new one.'));
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!oobCode || (params.get('mode') && params.get('mode') !== 'resetPassword')) {
+      setError('This reset link is invalid or incomplete. Please request a new one.');
+      setChecking(false);
+      return;
+    }
+    authService
+      .verifyResetCode(oobCode)
+      .then(setEmail)
+      .catch((e) => setError(e instanceof AppError ? e.message : 'This reset link is invalid.'))
+      .finally(() => setChecking(false));
+  }, [oobCode, params]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -31,36 +50,40 @@ export default function ResetPasswordPage() {
     setLoading(true);
     setError(null);
     try {
-      const r = await authService.resetPassword(token, password, confirm);
-      window.history.replaceState(null, '', window.location.pathname);
-      navigate('/login', { replace: true, state: { message: r.message } });
+      const r = await authService.resetPassword(oobCode, password);
+      navigate('/login', { replace: true, state: { notice: r.message } });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Reset failed. Please try again.');
+      setError(err instanceof AppError ? err.message : 'Reset failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
+  const ready = !!email && !checking;
   return (
     <AuthLayout>
       <div className="mt-6 text-center">
         <h1 className="text-2xl font-extrabold text-navy-900 sm:text-3xl">Set a New Password</h1>
-        <p className="mt-1.5 text-slate-500">Choose a strong password for your account</p>
+        <p className="mt-1.5 text-slate-500">{email ? <>for <b className="text-slate-700">{email}</b></> : 'Choose a strong password for your account'}</p>
       </div>
-      <form onSubmit={submit} noValidate className="mt-7 space-y-4">
-        {error && <Alert kind="error">{error}</Alert>}
-        <PasswordField label="New Password" icon={<Lock className="h-5 w-5" />} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} error={errors.password} disabled={!token} />
-        <PasswordRules password={password} />
-        <PasswordField label="Confirm Password" icon={<Lock className="h-5 w-5" />} autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} error={errors.confirm} disabled={!token} />
-        <Button type="submit" size="lg" block loading={loading} disabled={!token}>
-          Update Password
-        </Button>
-        <p className="text-center text-sm">
-          <Link to="/forgot-password" className="link">
-            Request a new link
-          </Link>
-        </p>
-      </form>
+      {checking ? (
+        <Spinner className="py-12" label="Checking reset link…" />
+      ) : (
+        <form onSubmit={submit} noValidate className="mt-7 space-y-4">
+          {error && <Alert kind="error">{error}</Alert>}
+          <PasswordField label="New Password" icon={<Lock className="h-5 w-5" />} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} error={errors.password} disabled={!ready} />
+          <PasswordRules password={password} />
+          <PasswordField label="Confirm Password" icon={<Lock className="h-5 w-5" />} autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} error={errors.confirm} disabled={!ready} />
+          <Button type="submit" size="lg" block loading={loading} disabled={!ready}>
+            Update Password
+          </Button>
+          <p className="text-center text-sm">
+            <Link to="/forgot-password" className="link">
+              Request a new link
+            </Link>
+          </p>
+        </form>
+      )}
     </AuthLayout>
   );
 }

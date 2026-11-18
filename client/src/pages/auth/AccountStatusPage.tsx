@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useAuth } from '@/context/AuthContext';
 import { ArrowLeft, Ban, Hourglass, Mail, UserX } from 'lucide-react';
 import { AuthLayout } from '@/layouts/AuthLayout';
 import { SUPPORT_EMAIL } from '@/utils/constants';
@@ -35,6 +37,11 @@ const fromStatus: Record<string, keyof typeof VIEWS> = {
 
 export default function AccountStatusPage() {
   const state = (useLocation().state ?? {}) as { code?: string; vendorName?: string; vendorCode?: string };
+  const { user, logout } = useAuth();
+  // A vendor without access must not keep a session open.
+  useEffect(() => {
+    if (user?.role === 'VENDOR') void logout();
+  }, [user, logout]);
   const key = (state.code && (state.code in VIEWS ? state.code : fromStatus[state.code])) as keyof typeof VIEWS | undefined;
   const v = VIEWS[key ?? 'ACCOUNT_PENDING'];
   const subject = encodeURIComponent(`Vendor portal access${state.vendorCode ? ` – ${state.vendorCode}` : ''}`);

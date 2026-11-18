@@ -3,7 +3,7 @@ import { Modal } from './Modal';
 import { Button } from './Button';
 import { TextArea } from './Field';
 import { Alert } from './Feedback';
-import { ApiError } from '@/services/apiClient';
+import { AppError } from '@/lib/errors';
 
 interface Props {
   open: boolean;
@@ -44,7 +44,7 @@ export function ConfirmDialog({
       await onConfirm(text.trim());
       onClose();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Action failed. Please try again.');
+      setError(e instanceof AppError ? e.message : 'Action failed. Please try again.');
     } finally {
       setLoading(false);
     }

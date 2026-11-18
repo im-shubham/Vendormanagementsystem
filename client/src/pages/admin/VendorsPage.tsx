@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Ban, Eye, Pencil, Plus, RotateCcw, Search } from 'lucide-react';
-import { useAsync } from '@/hooks/useAsync';
+import { usePagedQuery } from '@/hooks/usePagedQuery';
 import { useDebounce } from '@/hooks/useDebounce';
 import { adminService } from '@/services/adminService';
 import { useToast } from '@/context/ToastContext';
@@ -23,14 +23,12 @@ export default function VendorsPage() {
   const [params, setParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState(params.get('status') ?? '');
-  const [page, setPage] = useState(1);
   const [formOpen, setFormOpen] = useState(params.get('new') === '1');
   const [editing, setEditing] = useState<Vendor | null>(null);
   const [toggling, setToggling] = useState<Vendor | null>(null);
   const q = useDebounce(search);
 
-  useEffect(() => setPage(1), [q, status]);
-  const { data, error, loading, reload } = useAsync(() => adminService.listVendors({ page, pageSize: PAGE_SIZE, search: q, status }), [page, q, status]);
+  const { data, error, loading, reload, page, setPage } = usePagedQuery((after) => adminService.listVendors({ pageSize: PAGE_SIZE, search: q, status }, after), [q, status]);
 
   const openCreate = () => {
     setEditing(null);
@@ -90,7 +88,7 @@ export default function VendorsPage() {
                         <th className="th">Contact Number</th>
                         <th className="th">Registration Date</th>
                         <th className="th">Account Status</th>
-                        <th className="th text-right">Actions</th>
+                        <th className="th sticky right-0 text-right shadow-[-8px_0_12px_-10px_rgba(15,31,90,0.25)]">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -103,13 +101,13 @@ export default function VendorsPage() {
                             </Link>
                             <span className="block text-xs text-slate-400">{v.contactPerson}</span>
                           </td>
-                          <td className="td">{v.email}</td>
+                          <td className="td max-w-[220px] truncate" title={v.email}>{v.email}</td>
                           <td className="td">{v.mobileNumber}</td>
                           <td className="td">{formatDate(v.registeredAt)}</td>
                           <td className="td">
                             <AccountStatusBadge status={v.accountStatus} />
                           </td>
-                          <td className="td">
+                          <td className="td sticky right-0 bg-white shadow-[-8px_0_12px_-10px_rgba(15,31,90,0.25)]">
                             <div className="flex justify-end gap-1">
                               <button onClick={() => navigate(`/admin/vendors/${v.id}`)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-navy-800" title="View" aria-label={`View ${v.vendorName}`}>
                                 <Eye className="h-4 w-4" />
@@ -168,7 +166,7 @@ export default function VendorsPage() {
         onClose={closeForm}
         vendor={editing}
         onSaved={(v) => {
-          toast(editing ? `${v.vendorName} updated` : `${v.vendorName} created. Share the vendor code ${v.vendorCode} with the vendor for first-time login.`);
+          toast(editing ? `${v.vendorName} updated` : `${v.vendorName} created. Share the vendor code ${v.vendorCode} and registered email with the vendor for first-time login.`);
           void reload();
         }}
       />
@@ -181,7 +179,7 @@ export default function VendorsPage() {
         onConfirm={async () => {
           if (!toggling) return;
           const r = deactivating ? await adminService.deactivateVendor(toggling.id) : await adminService.reactivateVendor(toggling.id);
-          toast(`${r.vendor.vendorName} is now ${r.vendor.accountStatus.replace('_', ' ').toLowerCase()}`);
+          toast(`${toggling.vendorName} is now ${r.accountStatus.replace('_', ' ').toLowerCase()}`);
           void reload();
         }}
       >

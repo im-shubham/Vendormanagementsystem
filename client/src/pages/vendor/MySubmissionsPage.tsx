@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Plus } from 'lucide-react';
-import { useAsync } from '@/hooks/useAsync';
+import { usePagedQuery } from '@/hooks/usePagedQuery';
+import { useAuth } from '@/context/AuthContext';
 import { useDebounce } from '@/hooks/useDebounce';
 import { vendorService } from '@/services/vendorService';
 import { Card, PageHeader } from '@/components/ui/Card';
@@ -15,17 +16,16 @@ const PAGE_SIZE = 10;
 export default function MySubmissionsPage() {
   const [params, setParams] = useSearchParams();
   const [filters, setFilters] = useState<FilterValues>({ search: '', status: params.get('status') ?? '', from: '', to: '' });
-  const [page, setPage] = useState(1);
+  const { user } = useAuth();
   const po = useDebounce(filters.search);
 
-  const { data, error, loading, reload } = useAsync(
-    () => vendorService.listSubmissions({ page, pageSize: PAGE_SIZE, status: filters.status, from: filters.from, to: filters.to, po }),
-    [page, filters.status, filters.from, filters.to, po],
+  const { data, error, loading, reload, page, setPage } = usePagedQuery(
+    (after) => vendorService.listSubmissions(user!.vendor!.id, { pageSize: PAGE_SIZE, status: filters.status, from: filters.from, to: filters.to, po }, after),
+    [filters.status, filters.from, filters.to, po],
   );
 
   const onFilters = (v: FilterValues) => {
     setFilters(v);
-    setPage(1);
     setParams(v.status ? { status: v.status } : {}, { replace: true });
   };
   const filtered = Object.values(filters).some(Boolean);

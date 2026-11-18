@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { PasswordField, TextField } from '@/components/ui/Field';
 import { Alert } from '@/components/ui/Feedback';
 import { useAuth } from '@/context/AuthContext';
-import { ApiError } from '@/services/apiClient';
+import { AppError } from '@/lib/errors';
 
 export function LoginForm({ portal }: { portal: 'vendor' | 'admin' }) {
   const { login } = useAuth();
@@ -15,13 +15,14 @@ export function LoginForm({ portal }: { portal: 'vendor' | 'admin' }) {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<{ identifier?: string; password?: string }>({});
-  const [error, setError] = useState<string | null>((location.state as { message?: string } | null)?.message ?? null);
+  const [error, setError] = useState<string | null>(null);
+  const notice = (location.state as { notice?: string } | null)?.notice;
   const [loading, setLoading] = useState(false);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const errs: typeof errors = {};
-    if (!identifier.trim()) errs.identifier = portal === 'admin' ? 'Email is required' : 'Email or User ID is required';
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(identifier.trim())) errs.identifier = 'Enter your registered email address';
     if (!password) errs.password = 'Password is required';
     setErrors(errs);
     if (Object.keys(errs).length) return;
@@ -34,11 +35,11 @@ export function LoginForm({ portal }: { portal: 'vendor' | 'admin' }) {
       const home = user.role === 'ADMIN' ? '/admin' : '/vendor';
       navigate(from && from.startsWith(home) ? from : home, { replace: true });
     } catch (err) {
-      if (err instanceof ApiError && err.code?.startsWith('ACCOUNT_')) {
+      if (err instanceof AppError && err.code?.startsWith('ACCOUNT_')) {
         navigate('/account-status', { state: { code: err.code, message: err.message, ...(err.details ?? {}) } });
         return;
       }
-      setError(err instanceof ApiError ? err.message : 'Login failed. Please try again.');
+      setError(err instanceof AppError ? err.message : 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -46,10 +47,12 @@ export function LoginForm({ portal }: { portal: 'vendor' | 'admin' }) {
 
   return (
     <form onSubmit={submit} noValidate className="mt-8 space-y-5">
+      {notice && !error && <Alert kind="success">{notice}</Alert>}
       {error && <Alert kind="error">{error}</Alert>}
       <TextField
-        label={portal === 'admin' ? 'Email' : 'User ID / Registered Email'}
-        placeholder={portal === 'admin' ? 'Enter your RCPL email' : 'Enter your email or vendor code'}
+        label={portal === 'admin' ? 'Email' : 'Registered Email'}
+        type="email"
+        placeholder={portal === 'admin' ? 'Enter your RCPL email' : 'Enter your registered email'}
         icon={<Mail className="h-5 w-5" />}
         autoComplete="username"
         value={identifier}

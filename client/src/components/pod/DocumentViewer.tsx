@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Download, ExternalLink, FileText, ImageIcon } from 'lucide-react';
 import clsx from 'clsx';
 import { documentService } from '@/services/commonService';
-import { ApiError } from '@/services/apiClient';
+import { AppError } from '@/lib/errors';
 import { useToast } from '@/context/ToastContext';
 import { formatBytes, formatDateTime } from '@/utils/format';
 import type { PodDocument } from '@/types';
@@ -37,13 +37,13 @@ export function DocumentViewer({ documents }: { documents: PodDocument[] }) {
     setError(null);
     setUrl(null);
     documentService
-      .fetch(selected.id)
+      .fetch(selected)
       .then((blob) => {
         if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
         setUrl(objectUrl);
       })
-      .catch((e) => !cancelled && setError(e instanceof ApiError ? e.message : 'Unable to load document.'))
+      .catch((e) => !cancelled && setError(e instanceof AppError ? e.message : 'Unable to load document.'))
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
@@ -57,9 +57,9 @@ export function DocumentViewer({ documents }: { documents: PodDocument[] }) {
     if (!selected) return;
     setDownloading(true);
     try {
-      await documentService.download(selected.id, selected.fileName);
+      await documentService.download(selected);
     } catch (e) {
-      toast(e instanceof ApiError ? e.message : 'Download failed', 'error');
+      toast(e instanceof AppError ? e.message : 'Download failed', 'error');
     } finally {
       setDownloading(false);
     }

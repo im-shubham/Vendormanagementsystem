@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { TextArea, TextField } from '@/components/ui/Field';
 import { Alert } from '@/components/ui/Feedback';
 import { adminService } from '@/services/adminService';
-import { ApiError } from '@/services/apiClient';
+import { AppError } from '@/lib/errors';
 import type { Vendor, VendorInput } from '@/types';
 
 const empty: VendorInput = { vendorName: '', vendorCode: '', email: '', contactPerson: '', mobileNumber: '', address: '' };
@@ -20,7 +20,7 @@ function validate(v: VendorInput) {
   return e;
 }
 
-export function VendorFormModal({ open, onClose, vendor, onSaved }: { open: boolean; onClose: () => void; vendor?: Vendor | null; onSaved: (v: Vendor) => void }) {
+export function VendorFormModal({ open, onClose, vendor, onSaved }: { open: boolean; onClose: () => void; vendor?: Vendor | null; onSaved: (v: VendorInput) => void }) {
   const [form, setForm] = useState<VendorInput>(empty);
   const [errors, setErrors] = useState<Partial<Record<keyof VendorInput, string>>>({});
   const [error, setError] = useState<string | null>(null);
@@ -56,11 +56,12 @@ export function VendorFormModal({ open, onClose, vendor, onSaved }: { open: bool
     setError(null);
     const payload = Object.fromEntries(Object.entries(form).map(([k, v]) => [k, v.trim()])) as VendorInput;
     try {
-      const r = vendor ? await adminService.updateVendor(vendor.id, payload) : await adminService.createVendor(payload);
-      onSaved(r.vendor);
+      if (vendor) await adminService.updateVendor(vendor.id, payload);
+      else await adminService.createVendor(payload);
+      onSaved({ ...payload, vendorCode: payload.vendorCode.toUpperCase() });
       onClose();
     } catch (err) {
-      if (err instanceof ApiError) {
+      if (err instanceof AppError) {
         setError(err.message);
         setErrors(err.fields as typeof errors);
       } else setError('Could not save the vendor. Please try again.');

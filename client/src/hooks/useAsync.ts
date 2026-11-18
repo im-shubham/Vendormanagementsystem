@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type DependencyList } from 'react';
-import { ApiError } from '@/services/apiClient';
+import { toAppError } from '@/lib/errors';
 
 /** Loads data with loading / error state; `reload()` re-runs the loader. */
 export function useAsync<T>(loader: () => Promise<T>, deps: DependencyList = []) {
@@ -19,7 +19,7 @@ export function useAsync<T>(loader: () => Promise<T>, deps: DependencyList = [])
       const result = await run();
       if (id === seq.current) setData(result);
     } catch (err) {
-      if (id === seq.current) setError(err instanceof ApiError ? err.message : 'Something went wrong while loading data.');
+      if (id === seq.current) setError(toAppError(err, 'Something went wrong while loading data.').message);
     } finally {
       if (id === seq.current) setLoading(false);
     }

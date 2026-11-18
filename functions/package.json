@@ -13,7 +13,7 @@
     "seed": "tsx scripts/seed-demo.ts",
     "create-admin": "tsx scripts/create-admin.ts",
     "test:e2e": "tsx test/e2e.test.ts",
-    "test:all": "tsx test/e2e.test.ts"
+    "test:all": "tsx scripts/seed-demo.ts --emulator && tsx test/e2e.test.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

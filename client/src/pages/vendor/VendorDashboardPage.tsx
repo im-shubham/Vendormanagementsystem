@@ -14,7 +14,7 @@ import banner from '@/assets/warehouse-banner.jpg';
 
 export default function VendorDashboardPage() {
   const { user } = useAuth();
-  const { data, error, loading, reload } = useAsync(() => vendorService.dashboard(), []);
+  const { data, error, loading, reload } = useAsync(() => vendorService.dashboard(user!.vendor!.id), [user?.vendor?.id]);
 
   if (loading && !data) return <PageLoader />;
   if (error && !data) return <ErrorState message={error} onRetry={reload} />;

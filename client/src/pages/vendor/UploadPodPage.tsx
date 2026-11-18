@@ -2,9 +2,9 @@ import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { CheckCircle2, FileCheck2, Send } from 'lucide-react';
 import { vendorService } from '@/services/vendorService';
-import { ApiError } from '@/services/apiClient';
+import { AppError } from '@/lib/errors';
 import { useToast } from '@/context/ToastContext';
-import { notifyNotificationsChanged } from '@/hooks/useNotifications';
+import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/Field';
 import { Alert } from '@/components/ui/Feedback';
@@ -13,10 +13,10 @@ import { FileDropzone } from '@/components/pod/FileDropzone';
 import { GuidelinesCard } from '@/components/dashboard/GuidelinesCard';
 import { ACCEPTED_PHOTO_TYPES, ACCEPTED_POD_TYPES } from '@/utils/constants';
 import { todayIso } from '@/utils/format';
-import type { Submission } from '@/types';
 
 type Fields = { poNumber: string; invoiceNumber: string; deliveryDate: string; deliveryReference: string };
 type Errors = Partial<Record<keyof Fields | 'podDocument', string>>;
+type Result = { id: string; submissionNumber: string; poNumber: string; invoiceNumber: string };
 
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
@@ -33,13 +33,15 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
 export default function UploadPodPage() {
   const toast = useToast();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const [progress, setProgress] = useState(0);
   const [fields, setFields] = useState<Fields>({ poNumber: '', invoiceNumber: '', deliveryDate: '', deliveryReference: '' });
   const [pod, setPod] = useState<File | null>(null);
   const [photo, setPhoto] = useState<File | null>(null);
   const [errors, setErrors] = useState<Errors>({});
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<Submission | null>(null);
+  const [result, setResult] = useState<Result | null>(null);
 
   const set = (k: keyof Fields) => (e: { target: { value: string } }) => setFields((f) => ({ ...f, [k]: e.target.value }));
 
@@ -63,21 +65,20 @@ export default function UploadPodPage() {
     }
     setSubmitting(true);
     setError(null);
-    const form = new FormData();
-    form.append('poNumber', fields.poNumber.trim());
-    form.append('invoiceNumber', fields.invoiceNumber.trim());
-    form.append('deliveryDate', fields.deliveryDate);
-    if (fields.deliveryReference.trim()) form.append('deliveryReference', fields.deliveryReference.trim());
-    form.append('podDocument', pod!);
-    if (photo) form.append('supportingPhoto', photo);
+    setProgress(0);
+    const clean = {
+      poNumber: fields.poNumber.trim(),
+      invoiceNumber: fields.invoiceNumber.trim(),
+      deliveryDate: fields.deliveryDate,
+      deliveryReference: fields.deliveryReference.trim() || undefined,
+    };
     try {
-      const r = await vendorService.createSubmission(form);
-      setResult(r.submission);
-      toast(r.message);
-      notifyNotificationsChanged();
+      const r = await vendorService.createSubmission(user!.vendor!.id, clean, { podDocument: pod!, supportingPhoto: photo }, setProgress);
+      setResult({ id: r.submissionId, submissionNumber: r.submissionNumber, poNumber: clean.poNumber, invoiceNumber: clean.invoiceNumber });
+      toast(`POD submitted successfully. Submission ID: ${r.submissionNumber}`);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
-      if (err instanceof ApiError) {
+      if (err instanceof AppError) {
         setError(err.message);
         setErrors(err.fields as Errors);
       } else setError('Upload failed. Please try again.');
@@ -170,7 +171,7 @@ export default function UploadPodPage() {
               Cancel
             </Link>
             <Button type="submit" size="lg" loading={submitting} icon={<Send className="h-5 w-5" />}>
-              {submitting ? 'Submitting…' : 'Submit POD'}
+              {submitting ? (progress < 100 ? `Uploading… ${progress}%` : 'Verifying…') : 'Submit POD'}
             </Button>
           </div>
         </form>

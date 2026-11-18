@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { PasswordField, TextField } from '@/components/ui/Field';
 import { Alert } from '@/components/ui/Feedback';
 import { authService } from '@/services/authService';
-import { ApiError } from '@/services/apiClient';
+import { AppError } from '@/lib/errors';
 import { PasswordRules, passwordValid } from './PasswordRules';
 
 type Form = { email: string; vendorCode: string; password: string; confirmPassword: string };
@@ -35,7 +35,7 @@ export default function ActivateAccountPage() {
       await authService.activate({ ...form, email: form.email.trim(), vendorCode: form.vendorCode.trim() });
       setDone(true);
     } catch (err) {
-      if (err instanceof ApiError) {
+      if (err instanceof AppError) {
         setError(err.message);
         setErrors(err.fields as typeof errors);
       } else setError('Activation failed. Please try again.');

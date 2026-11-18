@@ -3,9 +3,9 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, RotateCcw, Upload } from 'lucide-react';
 import { useAsync } from '@/hooks/useAsync';
 import { vendorService } from '@/services/vendorService';
-import { ApiError } from '@/services/apiClient';
+import { AppError } from '@/lib/errors';
 import { useToast } from '@/context/ToastContext';
-import { notifyNotificationsChanged } from '@/hooks/useNotifications';
+import { useAuth } from '@/context/AuthContext';
 import { Card, CardHeader, DetailItem } from '@/components/ui/Card';
 import { Alert, ErrorState, PageLoader } from '@/components/ui/Feedback';
 import { Button } from '@/components/ui/Button';
@@ -20,6 +20,8 @@ import type { Submission } from '@/types';
 
 function ReuploadForm({ submission, onDone }: { submission: Submission; onDone: () => void }) {
   const toast = useToast();
+  const { user } = useAuth();
+  const [progress, setProgress] = useState(0);
   const [pod, setPod] = useState<File | null>(null);
   const [photo, setPhoto] = useState<File | null>(null);
   const [fields, setFields] = useState({
@@ -43,22 +45,20 @@ function ReuploadForm({ submission, onDone }: { submission: Submission; onDone: 
     else if (fields.deliveryDate > todayIso()) errs.deliveryDate = 'Delivery date cannot be in the future';
     setErrors(errs);
     if (Object.keys(errs).length) return;
-    const form = new FormData();
-    if (fields.poNumber.trim() !== submission.poNumber) form.append('poNumber', fields.poNumber.trim());
-    if (fields.invoiceNumber.trim() !== submission.invoiceNumber) form.append('invoiceNumber', fields.invoiceNumber.trim());
-    if (fields.deliveryDate !== submission.deliveryDate) form.append('deliveryDate', fields.deliveryDate);
-    if (fields.note.trim()) form.append('note', fields.note.trim());
-    form.append('podDocument', pod!);
-    if (photo) form.append('supportingPhoto', photo);
+    const edits: { poNumber?: string; invoiceNumber?: string; deliveryDate?: string; note?: string } = {};
+    if (fields.poNumber.trim() !== submission.poNumber) edits.poNumber = fields.poNumber.trim();
+    if (fields.invoiceNumber.trim() !== submission.invoiceNumber) edits.invoiceNumber = fields.invoiceNumber.trim();
+    if (fields.deliveryDate !== submission.deliveryDate) edits.deliveryDate = fields.deliveryDate;
+    if (fields.note.trim()) edits.note = fields.note.trim();
     setLoading(true);
     setError(null);
+    setProgress(0);
     try {
-      const r = await vendorService.reupload(submission.id, form);
-      toast(r.message);
-      notifyNotificationsChanged();
+      const r = await vendorService.reupload(user!.vendor!.id, submission, edits, { podDocument: pod!, supportingPhoto: photo }, setProgress);
+      toast(`Corrected POD uploaded (version ${r.version}). It is now under review.`);
       onDone();
     } catch (err) {
-      if (err instanceof ApiError) {
+      if (err instanceof AppError) {
         setError(err.message);
         setErrors(err.fields);
       } else setError('Upload failed. Please try again.');
@@ -83,7 +83,7 @@ function ReuploadForm({ submission, onDone }: { submission: Submission; onDone: 
       <TextArea label="Note to reviewer" optional rows={3} maxLength={500} placeholder="Briefly describe what was corrected" value={fields.note} onChange={set('note')} />
       <div className="flex justify-end">
         <Button type="submit" size="lg" loading={loading} icon={<Upload className="h-5 w-5" />}>
-          Submit Corrected POD
+          {loading ? (progress < 100 ? `Uploading… ${progress}%` : 'Verifying…') : 'Submit Corrected POD'}
         </Button>
       </div>
     </form>
@@ -93,7 +93,8 @@ function ReuploadForm({ submission, onDone }: { submission: Submission; onDone: 
 export default function VendorSubmissionDetailPage() {
   const { id = '' } = useParams();
   const [params, setParams] = useSearchParams();
-  const { data, error, loading, reload } = useAsync(() => vendorService.getSubmission(id), [id]);
+  const { user } = useAuth();
+  const { data, error, loading, reload } = useAsync(() => vendorService.getSubmission(user!.vendor!.id, id), [id]);
   const showReupload = params.get('reupload') === '1';
 
   if (loading && !data) return <PageLoader />;

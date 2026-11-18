@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/Field';
 import { Alert } from '@/components/ui/Feedback';
 import { authService } from '@/services/authService';
-import { ApiError } from '@/services/apiClient';
+import { AppError } from '@/lib/errors';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
@@ -24,7 +24,7 @@ export default function ForgotPasswordPage() {
     try {
       setMessage((await authService.forgotPassword(email.trim())).message);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Request failed. Please try again.');
+      setError(err instanceof AppError ? err.message : 'Request failed. Please try again.');
     } finally {
       setLoading(false);
     }

@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CheckCircle2, Search, UserCheck, XCircle } from 'lucide-react';
 import clsx from 'clsx';
-import { useAsync } from '@/hooks/useAsync';
+import { usePagedQuery } from '@/hooks/usePagedQuery';
 import { useDebounce } from '@/hooks/useDebounce';
 import { adminService } from '@/services/adminService';
 import { useToast } from '@/context/ToastContext';
@@ -27,11 +27,9 @@ export default function RegistrationsPage() {
   const toast = useToast();
   const [tab, setTab] = useState('PENDING');
   const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
   const [acting, setActing] = useState<{ req: RegistrationRequest; kind: 'approve' | 'reject' } | null>(null);
   const q = useDebounce(search);
-  useEffect(() => setPage(1), [tab, q]);
-  const { data, error, loading, reload } = useAsync(() => adminService.listRegistrations({ page, pageSize: PAGE_SIZE, status: tab, search: q }), [page, tab, q]);
+  const { data, error, loading, reload, page, setPage } = usePagedQuery((after) => adminService.listRegistrations({ pageSize: PAGE_SIZE, status: tab, search: q }, after), [tab, q]);
 
   return (
     <div>

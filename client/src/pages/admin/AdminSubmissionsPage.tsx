@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { X } from 'lucide-react';
-import { useAsync } from '@/hooks/useAsync';
+import { usePagedQuery } from '@/hooks/usePagedQuery';
 import { useDebounce } from '@/hooks/useDebounce';
 import { adminService } from '@/services/adminService';
 import { Card, PageHeader } from '@/components/ui/Card';
@@ -16,17 +16,15 @@ export default function AdminSubmissionsPage() {
   const [params, setParams] = useSearchParams();
   const vendorId = params.get('vendorId') ?? '';
   const [filters, setFilters] = useState<FilterValues>({ search: '', status: params.get('status') ?? '', from: '', to: '' });
-  const [page, setPage] = useState(1);
   const search = useDebounce(filters.search);
 
-  const { data, error, loading, reload } = useAsync(
-    () => adminService.listSubmissions({ page, pageSize: PAGE_SIZE, search, status: filters.status, from: filters.from, to: filters.to, vendorId: vendorId || undefined }),
-    [page, search, filters.status, filters.from, filters.to, vendorId],
+  const { data, error, loading, reload, page, setPage } = usePagedQuery(
+    (after) => adminService.listSubmissions({ pageSize: PAGE_SIZE, search, status: filters.status, from: filters.from, to: filters.to, vendorId: vendorId || undefined }, after),
+    [search, filters.status, filters.from, filters.to, vendorId],
   );
 
   const onFilters = (v: FilterValues) => {
     setFilters(v);
-    setPage(1);
     const next: Record<string, string> = {};
     if (v.status) next.status = v.status;
     if (vendorId) next.vendorId = vendorId;

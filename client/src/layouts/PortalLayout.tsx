@@ -31,8 +31,8 @@ function useAdminCounts(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     adminService
-      .dashboard()
-      .then((d) => setCounts({ review: d.pods.UNDER_REVIEW, registrations: d.vendors.pendingApproval }))
+      .badgeCounts()
+      .then(setCounts)
       .catch(() => undefined);
   }, [enabled, location.pathname]);
   return counts;

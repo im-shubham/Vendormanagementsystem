@@ -1,5 +1,4 @@
-import { useEffect } from 'react';
-import { BrowserRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from '@/context/AuthContext';
 import { ToastProvider } from '@/context/ToastContext';
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute';
@@ -27,26 +26,11 @@ import AdminSubmissionsPage from '@/pages/admin/AdminSubmissionsPage';
 import SubmissionReviewPage from '@/pages/admin/SubmissionReviewPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 
-/** If the API reports the vendor account is no longer active, show the status screen. */
-function AccountBlockedListener() {
-  const navigate = useNavigate();
-  useEffect(() => {
-    const onBlocked = (e: Event) => {
-      const err = (e as CustomEvent<{ code: string; message: string }>).detail;
-      navigate('/account-status', { replace: true, state: { code: err.code, message: err.message } });
-    };
-    window.addEventListener('rcpl:account-blocked', onBlocked);
-    return () => window.removeEventListener('rcpl:account-blocked', onBlocked);
-  }, [navigate]);
-  return null;
-}
-
 export default function App() {
   return (
     <BrowserRouter>
       <ToastProvider>
         <AuthProvider>
-          <AccountBlockedListener />
           <Routes>
             <Route path="/" element={<Navigate to="/login" replace />} />
             <Route path="/login" element={<VendorLoginPage />} />

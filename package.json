@@ -2,7 +2,7 @@
   "name": "rcpl-vendor-pod-management",
   "private": true,
   "version": "2.0.0",
-  "description": "RCPL Vendor POD Management System — Firebase (Auth, Firestore, Storage, Functions, Hosting)",
+  "description": "RCPL Vendor POD Management System \u2014 Firebase (Auth, Firestore, Storage, Functions, Hosting)",
   "workspaces": [
     "client",
     "functions"
@@ -16,7 +16,8 @@
     "test": "npm run build -w functions && firebase emulators:exec --project demo-rcpl-pod --only auth,firestore,storage,functions \"npm run test:all -w functions\"",
     "deploy": "npm run build && firebase deploy",
     "deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes,storage",
-    "emulators:resume": "npm run build -w functions && firebase emulators:start --project demo-rcpl-pod --import=./.emulator-data --export-on-exit=./.emulator-data"
+    "emulators:resume": "npm run build -w functions && firebase emulators:start --project demo-rcpl-pod --import=./.emulator-data --export-on-exit=./.emulator-data",
+    "dev:emulator": "npm run dev:emulator -w client"
   },
   "devDependencies": {
     "firebase-tools": "^14.27.0"

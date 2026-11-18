@@ -4,18 +4,11 @@ export type PodStatus = 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED';
 export type RegistrationStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
 export interface User {
-  id: string;
+  uid: string;
   role: Role;
   email: string;
   fullName: string | null;
   vendor: { id: string; name: string; code: string; status: VendorAccountStatus } | null;
-}
-
-export interface Session {
-  accessToken: string;
-  refreshToken: string;
-  expiresIn: number;
-  user: User;
 }
 
 export interface Paginated<T> {
@@ -56,6 +49,7 @@ export interface PodDocument {
   id: string;
   documentType: 'POD' | 'SUPPORTING_PHOTO';
   fileName: string;
+  storagePath: string;
   fileType: string;
   fileSize: number;
   versionNumber: number;

@@ -1,192 +1,238 @@
 # RCPL Vendor POD Management System
 
-A web application that moves Proof of Delivery (POD) handling for **Reliance Consumer Products Limited (RCPL)** off WhatsApp and email and into one system you can track.
+A web application that moves Proof of Delivery (POD) handling for **Reliance Consumer Products Limited (RCPL)** off WhatsApp and email and into one system you can track. It runs entirely on **Firebase** (Blaze plan).
 
-* **Vendor Portal**: first-time account activation, login, dashboard, POD upload, submission history, rejection remarks, re-upload, and in-app notifications.
-* **Admin Portal**: dashboard, vendor master (create, read, update, deactivate), registration approvals, POD verification (preview, download, approve, reject with remarks).
+* **Vendor Portal**: first-time account activation, login, password reset, dashboard, POD upload, submission history, rejection remarks, re-upload with version history, and real-time in-app notifications.
+* **Admin Portal**: dashboard, vendor master (create, read, update, deactivate), registration approvals, POD verification (preview, download, approve, reject with mandatory remarks).
 
-> MVP scope: approval is a manual decision by an admin. OCR, AI validation, SAP, email and reporting integrations are deliberately left out. The code is modular so they can be added later (see [Future enhancements](#future-enhancements)).
+> MVP scope: approval is a manual decision by an admin. OCR, AI image checks, reminders and SAP integration are deliberately left out. The code is modular so they can be added later (see [Future phases](#future-phases)).
 
 ---
 
-## Tech stack
+## Architecture
 
-| Layer    | Technology |
-|----------|-----------|
-| Frontend | React 18, TypeScript, Vite, Tailwind CSS, Lucide icons, React Router |
-| Backend  | Node.js, Express 5, TypeScript, Zod validation, Multer |
-| Database | Supabase PostgreSQL (plain PostgreSQL 14+ also works for local development) |
-| Auth     | Supabase Auth (`AUTH_PROVIDER=supabase`), or a built-in bcrypt + JWT provider for local development (`AUTH_PROVIDER=local`) |
-| Storage  | Supabase Storage, private bucket (`STORAGE_PROVIDER=supabase`), or local disk for development |
-
-## Project structure
+| Layer | Technology |
+|---|---|
+| Frontend | React 18, TypeScript, Vite, Tailwind CSS, Lucide icons, React Router, Firebase Web SDK |
+| Auth | **Firebase Authentication** (email + password); roles are **custom claims** set only by the backend |
+| Database | **Cloud Firestore**, protected by `firestore.rules` |
+| Files | **Cloud Storage for Firebase**, private, protected by `storage.rules` |
+| Backend | **Cloud Functions for Firebase** (2nd gen, callable, Node 22, region `asia-south1`) |
+| Hosting | **Firebase Hosting** (SPA) |
+| Local dev | **Firebase Emulator Suite** (Auth, Firestore, Storage, Functions, Hosting) |
 
 ```
-├── supabase/
-│   ├── migrations/            # SQL schema, RLS policies, grants (run in order)
-│   └── local/                 # Shim for plain PostgreSQL (auth schema, roles) — local dev only
-├── server/                    # Express API
-│   └── src/
-│       ├── auth/              # AuthProvider interface + Supabase / local implementations
-│       ├── storage/           # StorageProvider interface + Supabase / local implementations
-│       ├── config/            # Validated environment configuration
-│       ├── db/                # pg pool, withUser (RLS context) / withSystem helpers
-│       ├── middleware/        # authenticate, requireAdmin, requireActiveVendor, upload, errors
-│       ├── routes/            # auth, vendor, admin, common (documents, notifications)
-│       ├── services/          # business logic (auth, vendor master, POD, notifications)
-│       ├── utils/             # validation schemas, SQL helpers, HTTP errors
-│       └── scripts/           # migrate, seed-demo, create-admin, e2e-test
+Browser (React)
+  ├── Firebase Auth ───────── sign-in, password reset (email link)
+  ├── Firestore (read-only) ─ security rules: role claim + live vendor approval check
+  ├── Storage ─────────────── upload into OWN vendor folder only; read via rules (no public URLs)
+  └── Cloud Functions ─────── every write: activation, approvals, vendor CRUD,
+                              POD create/re-submit/review, submission numbers, notifications
+```
+
+**Trust model:** the browser never writes business data. Every create or update runs in a Cloud Function using the Admin SDK, after server-side validation. Role and approval status are never accepted from the client: roles come from custom claims, and approval is read from the vendor record by the rules and by the functions.
+
+### Repository layout
+
+```
+├── firebase.json              # Hosting, Functions, rules, indexes, emulator ports
+├── .firebaserc                # default project = demo-rcpl-pod (emulator); add yours with `firebase use --add`
+├── firestore.rules            # Firestore security rules
+├── firestore.indexes.json     # composite indexes for every query the app runs
+├── storage.rules              # Storage security rules
+├── storage.cors.json          # bucket CORS (needed for authenticated in-browser preview)
+├── functions/                 # Cloud Functions (TypeScript)
+│   ├── src/index.ts           # exports + global options (region, limits)
+│   ├── src/handlers/          # activation, vendors, registrations, pods
+│   ├── src/lib/               # admin SDK, guards (role checks), validation (zod),
+│   │                          # file verification, notifications, search keywords, unique keys
+│   ├── scripts/               # create-admin, seed-demo (Admin SDK, CLI only)
+│   └── test/e2e.test.ts       # end-to-end + security test against the emulators
 └── client/                    # React app
     └── src/
-        ├── components/        # ui/, brand/, dashboard/, pod/, layout/
-        ├── context/           # AuthContext, ToastContext
-        ├── hooks/             # useAsync, useDebounce, useNotifications
-        ├── layouts/           # AuthLayout, PortalLayout (sidebar + top bar)
-        ├── pages/             # auth/, vendor/, admin/
-        ├── services/          # API client + typed service modules
-        ├── types/             # shared TypeScript types
-        └── utils/             # formatting, constants
+        ├── lib/               # firebase init, error mapping, Firestore paging helpers
+        ├── services/          # authService, vendorService, adminService, notifications/documents
+        ├── context/ hooks/    # AuthContext (claims + live vendor status), paging, notifications
+        ├── layouts/ pages/ components/
+        └── types/ utils/
 ```
 
 ---
 
-## Quick start (local, no Supabase account needed)
+## Data model (Firestore)
 
-Requirements: Node.js 20+, PostgreSQL 14+.
+| Collection | Document ID | Key fields | Written by |
+|---|---|---|---|
+| `vendors` | auto | vendorCode (upper-case), vendorName, email (lower-case), contactPerson, mobileNumber, address, **accountStatus** (`NOT_REGISTERED` · `PENDING_APPROVAL` · `ACTIVE` · `REJECTED` · `DEACTIVATED`), authUid, registeredAt, createdAt, updatedAt, searchKeywords | Functions |
+| `userProfiles` | **Auth UID** | role (`ADMIN`/`VENDOR`), vendorId, fullName, email, createdAt | Functions / admin script |
+| `vendorRegistrationRequests` | auto | vendorId, vendor snapshot, approvalStatus, requestedAt, reviewedBy/Name/At, remarks | Functions |
+| `podSubmissions` | auto (created by the client before upload) | **submissionNumber** (`POD-10001`…), vendorId, vendorName/Code, poNumber, invoiceNumber, deliveryDate (`YYYY-MM-DD`), deliveryReference, **currentStatus**, currentVersion, adminRemarks, reviewedBy/Name/At, submittedAt, updatedAt, searchKeywords | Functions |
+| `podDocuments` | auto | submissionId, vendorId, documentType (`POD`/`SUPPORTING_PHOTO`), fileName, **storagePath**, contentType, size, versionNumber, uploadedBy, uploadedAt | Functions |
+| `podStatusHistory` | auto | submissionId, vendorId, previousStatus, newStatus, remarks, versionNumber, updatedBy/Name/Role, updatedAt | Functions |
+| `notifications` | auto | userId, title, message, link, isRead, createdAt | Functions (client may only set `isRead`) |
+| `counters/podSubmissions` | fixed | next | Functions (transaction) |
+| `uniqueKeys` | `vendorCode_*`, `vendorEmail_*`, `invoice_*` | enforces unique vendor code, vendor email, and one submission per invoice per vendor | Functions |
+
+* `vendorId` is copied into documents, history and notifications so security rules can authorise each document without extra reads.
+* `searchKeywords` holds lower-case prefixes, so search works with `array-contains`. Firestore has no full-text search; Algolia or Typesense can replace this later.
+* Timestamps are server timestamps.
+
+### Storage layout
+
+```
+pod-documents/{vendorId}/{submissionId}/version-{n}/pod-document.{pdf|jpg|jpeg|png}
+pod-documents/{vendorId}/{submissionId}/version-{n}/supporting-photo.{jpg|jpeg|png}
+```
+
+The original file name is stored as custom metadata and in `podDocuments`. Binaries are never stored in Firestore.
+
+---
+
+## Key workflows
+
+### Vendor activation (first-time login)
+1. An admin creates the vendor record (`createVendor`). It starts as `NOT_REGISTERED`.
+2. The vendor opens **First-Time Login / Create Password** and enters registered email + vendor code + new password.
+3. `activateVendorAccount` checks that **both** match an existing `NOT_REGISTERED` vendor. Then it creates the Firebase Auth user (Firebase stores the password hash; nothing is stored in Firestore), sets claims `{role: VENDOR, vendorId}`, creates the `userProfile` and registration request, and sets the vendor to `PENDING_APPROVAL`. Duplicates are blocked by Firebase Auth's unique email and a transactional status check.
+4. An admin approves or rejects (`reviewVendorRegistration`). Only `ACTIVE` vendors can read data or call vendor functions.
+
+### POD upload
+1. The form validates required fields and the file type/size in the browser.
+2. The browser generates a submission document ID and uploads the file(s) to `version-1/`. Storage rules allow only the **active** vendor's own folder, only create (no overwrite or delete), only PDF/JPG/PNG, and at most 10 MB.
+3. `createPodSubmission` checks the uploaded files on the server (exactly one POD, at most one photo, MIME type, size, file **signature**). It then takes the next **submission number** from a transactional counter and, in **one transaction**, writes the submission (`UNDER_REVIEW`), document metadata and status history. Invalid uploads are deleted.
+4. Vendor and admins get notifications. The submission appears on the dashboard and in My Submissions.
+
+### Review and re-upload
+`reviewPodSubmission` (admin only) approves or rejects. Rejection needs remarks, and only `UNDER_REVIEW` items can be reviewed. A rejected vendor uploads to `version-{n+1}/` and calls `resubmitPodSubmission`. Earlier versions stay in place and the history records every step.
+
+```
+UNDER_REVIEW ──► APPROVED
+     │
+     └──► REJECTED (remarks) ──► vendor re-uploads v2, v3… ──► UNDER_REVIEW
+```
+
+`PENDING` is reserved for deliveries that are expected but have no POD yet (future SAP feed). The "Pending POD" KPI is calculated from real data and stays at 0 until that integration exists.
+
+---
+
+## Security summary
+
+| Requirement | Implementation |
+|---|---|
+| Server-controlled roles | Custom claims (`role`, `vendorId`) are set only by Cloud Functions or the admin CLI script. Rules and functions read claims, never client input. |
+| Approval cannot be bypassed | Rules call `get(vendors/{vendorId}).accountStatus == 'ACTIVE'` on every vendor read (Firestore **and** Storage). Functions check it again. Vendors cannot write vendor records at all. |
+| Vendor isolation | Every operational document has `vendorId`. Rules require `vendorId == token.vendorId`. Storage paths start with the vendor ID. |
+| Deactivation | Vendor set to `DEACTIVATED`, Firebase user **disabled**, refresh tokens **revoked**. Rules block existing sessions immediately. Historical PODs are kept. |
+| Private documents | No public objects and no download-token URLs. Files are read with `getBlob()` under Storage rules. |
+| Self-registration | Anyone can technically create a Firebase Auth user, but without claims or a profile they get no access at all (tested). See the production checklist for disabling client sign-up completely. |
+| Secrets | The web config in `client/.env.local` identifies the project and is not secret. Admin SDK credentials are used only by Functions (built-in service account) and by CLI scripts through Application Default Credentials, never in the frontend. Service-account files are git-ignored. |
+
+---
+
+## Local development (Emulator Suite)
+
+Requirements: Node.js 22, Java 11+ (for the Firestore and Storage emulators).
 
 ```bash
-# 1. Install dependencies (npm workspaces)
-npm install
+npm install                   # installs client + functions workspaces + firebase-tools
 
-# 2. Create a database
-createdb rcpl_pod            # or: psql -c 'create database rcpl_pod'
+# Terminal 1 — emulators (builds functions first). Data is exported to .emulator-data on exit.
+npm run emulators             # later: npm run emulators:resume  (re-imports saved data)
 
-# 3. Configure the API
-cp server/.env.example server/.env
-#   - set DATABASE_URL
-#   - set LOCAL_JWT_SECRET to a long random string (e.g. `openssl rand -hex 32`)
+# Terminal 2 — demo data (admin + 4 vendor records)
+npm run seed:emulator
 
-# 4. Create the schema and demo data
-npm run db:migrate
-npm run db:seed
-
-# 5. Run the API (port 4000) and the web app (port 5173)
-npm run dev
+# Terminal 3 — web app against the emulators
+npm run dev:emulator          # http://localhost:5173   (Emulator UI: http://127.0.0.1:4000)
 ```
 
-Open <http://localhost:5173>.
+**Demo accounts (emulator only)**
 
-### Demo accounts
-
-| Portal | Login | Notes |
-|--------|-------|-------|
-| Admin  | `admin@rcpl.demo` / `Admin@12345` | Created by `db:seed` (demo only) |
-| Vendor | `abcfoods@example.com` + vendor code `V1001` | Use **First-Time Login / Create Password**, then approve the request from the Admin Portal |
+| Portal | Credentials |
+|---|---|
+| Admin | `admin@rcpl.demo` / `Admin@12345` |
+| Vendor | Use **First-Time Login** with `abcfoods@example.com` + vendor code `V1001`, then approve it in the Admin Portal |
 
 Other seeded vendors: `V1002 xyzagri@example.com`, `V1003 mnoexports@example.com`, `V1004 globalfoods@example.com`.
+Password-reset emails are not sent in the emulator. The links appear in the Emulator UI → Authentication.
 
-In local auth mode no emails are sent. **Forgot Password** prints the reset link in the API console.
+### Tests
 
----
-
-## Deploying with Supabase
-
-1. Create a Supabase project.
-2. In `server/.env`:
-   ```env
-   DATABASE_URL=postgresql://postgres:<password>@db.<ref>.supabase.co:5432/postgres
-   DATABASE_SSL=true
-   AUTH_PROVIDER=supabase
-   STORAGE_PROVIDER=supabase
-   SUPABASE_URL=https://<ref>.supabase.co
-   SUPABASE_SERVICE_ROLE_KEY=<service role key>   # server only, never in the frontend
-   APP_URL=https://<your frontend domain>
-   CORS_ORIGINS=https://<your frontend domain>
-   ```
-   Use the direct connection or the **session** pooler (port 5432).
-3. `npm run db:migrate` applies `supabase/migrations/*.sql`. You can also paste them into the SQL editor in order.
-4. Create the first admin:
-   ```bash
-   npm run create-admin -- --email admin@rcpl.com --password 'Str0ng@Pass' --name "Admin User"
-   ```
-5. Supabase dashboard → Authentication → URL Configuration: add `https://<frontend>/reset-password` as a redirect URL. Configure SMTP so password-reset emails come from an RCPL domain.
-6. The API creates the private bucket `pod-documents` on startup if it doesn't exist.
-7. Build: `npm run build`. Serve `client/dist` as static files with an SPA fallback to `index.html`, and run `node server/dist/index.js`. If the API is on another domain, set `VITE_API_URL` at build time.
-
-> Only the backend talks to Supabase. The frontend has **no Supabase keys at all**: no anon key and no service key.
-
----
-
-## Security model
-
-| Concern | How it's handled |
-|---|---|
-| No shared/default vendor passwords | Each vendor creates their own password through first-time activation. Supabase Auth or bcrypt stores it. |
-| Arbitrary self-registration | Activation needs an existing vendor-master record with a matching **email and vendor code**, in `NOT_REGISTERED` status. |
-| Bypassing admin approval | 1) Login gives no tokens unless the vendor is `ACTIVE`. 2) Every vendor API request re-checks status (deactivation applies immediately). 3) In the database, `current_vendor_id()` returns NULL unless the vendor is `ACTIVE`, so RLS hides all data. |
-| Vendors seeing other vendors' data | Postgres **Row Level Security**. The API runs every user request as the `authenticated` role with the caller's JWT `sub`, the same way Supabase PostgREST does, so the database enforces the policies, not only the API. |
-| Invalid status changes | The `pod_submissions` trigger allows only `UNDER_REVIEW → APPROVED/REJECTED` and `REJECTED → UNDER_REVIEW`, requires rejection remarks, and stops vendors editing review fields or admins editing vendor data. |
-| File access | Private storage. Files are streamed only through `GET /api/documents/:id/file` after an RLS-checked lookup. There are no public URLs. |
-| File validation | PDF/JPG/JPEG/PNG only, 10 MB limit, extension + MIME type + magic-byte signature check. |
-| Version history | Re-uploads add new `pod_documents` versions. Nothing is overwritten (`flag: 'wx'` / `upsert: false`). |
-| Brute force | Rate limiting on login, activation and password-reset endpoints. |
-| Secrets | The service-role key is used only by the server. `.env` files are git-ignored. |
-
-## POD status workflow
-
-```
-Vendor uploads ──► UNDER_REVIEW ──► APPROVED
-                        │
-                        └──► REJECTED (mandatory remarks) ──► vendor re-uploads (v2, v3…) ──► UNDER_REVIEW
+```bash
+npm test     # builds functions, starts the emulators, runs functions/test/e2e.test.ts, shuts down
 ```
 
-Every transition is written to `pod_status_history`. Vendors get an in-app notification on submission, approval and rejection (with the remarks). Admins are notified of new registrations, submissions and re-uploads.
-
-`PENDING` exists in the status enum for future expected deliveries without a POD (e.g. from a SAP delivery feed). The "Pending POD" KPI is calculated from real data and stays at 0 until that integration exists.
-
-## Database
-
-Tables: `vendors`, `user_profiles`, `vendor_registration_requests`, `pod_submissions`, `pod_documents`, `pod_status_history`, `notifications`. All have foreign keys, check constraints and indexes. RLS is enabled on every table.
-Notable constraints: unique vendor code/email (case-insensitive), one open registration request per vendor, one submission per invoice per vendor, unique document version per submission.
-
-## API overview
-
-| Method & path | Who |
-|---|---|
-| `POST /api/auth/login` · `/activate` · `/refresh` · `/forgot-password` · `/reset-password` · `GET /me` · `POST /logout` | public / authenticated |
-| `GET /api/vendor/dashboard` · `GET/POST /api/vendor/submissions` · `GET /api/vendor/submissions/:id` · `POST /api/vendor/submissions/:id/reupload` | active vendor |
-| `GET /api/admin/dashboard` · `GET/POST /api/admin/vendors` · `GET/PUT /api/admin/vendors/:id` · `POST …/deactivate` · `POST …/reactivate` | admin |
-| `GET /api/admin/registrations` · `POST /api/admin/registrations/:id/approve` · `…/reject` | admin |
-| `GET /api/admin/submissions` · `GET /api/admin/submissions/:id` · `POST …/approve` · `POST …/reject` | admin |
-| `GET /api/documents/:id/file[?download=1]` · `GET /api/notifications` · `POST /api/notifications/:id/read` · `/read-all` | admin or active vendor |
-
-## Testing
-
-`npm run test:e2e` runs the whole workflow through the real HTTP API against the configured database and storage. It uses unique vendors on each run, so it's safe to repeat (it needs the seeded demo admin, or set `E2E_ADMIN_EMAIL` / `E2E_ADMIN_PASSWORD`):
+The test uses the **real web SDK**, so the security rules apply exactly as in the browser. It also uses the real functions. It covers the 13 MVP scenarios:
 
 1. Admin creates a vendor
 2. Vendor creates a password
 3. Account goes to pending approval
-4. Vendor cannot access the dashboard before approval (API **and** direct DB/RLS checks)
+4. Pending vendor gets no data, uploads or function access
 5. Admin approves the vendor
-6. Vendor logs in (email or vendor code)
+6. Vendor gets access
 7. Vendor uploads a POD
-8. Admin views and downloads the POD
+8. Admin views and downloads it
 9. Admin approves it
 10. Vendor sees the approved status
-11. Admin rejects another POD with remarks
+11. Admin rejects another POD (remarks mandatory)
 12. Vendor sees the reason and re-uploads
-13. Admin reviews the new version (old version and history kept)
+13. Admin reviews version 2 (version 1 and history kept)
 
-It also checks cross-vendor isolation, admin-route protection, upload validation (type, fake files, future dates, duplicate invoices), deactivation and reactivation, registration rejection, and the password-reset flow.
+It also checks:
 
-## Future enhancements
+* duplicate vendors and invoices are refused
+* self-registered users have no access
+* vendors cannot approve themselves
+* cross-vendor isolation for documents and files
+* Storage rules: wrong folder, wrong type, no overwrite
+* server-side file validation (fake PDF, missing file, future date)
+* notifications: users can only change `isRead`
+* deactivation, reactivation and registration rejection
+* the password-reset email-link flow
 
-Not built in this phase. Planned extension points:
+---
 
-* **AI / OCR validation** (blur, crop, stamp, signature, invoice/date matching, duplicates): add a validation step in `services/pod.service.ts` after `validateFiles`, ideally as an async job that writes results to a new `pod_validation_results` table.
-* **Email / SMS notifications, reminders, overdue alerts**: extend `services/notification.service.ts` (the single place notifications are created).
-* **RCPL-approved storage** (Azure Blob, S3, on-prem DMS): implement `storage/provider.ts`.
-* **Corporate SSO**: implement `auth/provider.ts`.
-* **SAP delivery feed**: create `PENDING` submissions from expected deliveries.
-* **Power BI / vendor scorecards**: read from the normalised tables and status history.
+## Deploying to Firebase (Blaze plan)
+
+1. **Create the project** in the [Firebase console](https://console.firebase.google.com) and upgrade to **Blaze**.
+2. **Authentication** → Sign-in method → enable **Email/Password**. Under Settings, set a **password policy** (min 8, upper, lower, number, special) to match the app. Add your Hosting domain(s) to **Authorized domains**.
+3. **Firestore** → create the database in **production mode**, location **`asia-south1` (Mumbai)** or your approved region.
+4. **Storage** → Get started, same region. When you first deploy `storage.rules`, the CLI asks to let Storage read Firestore for the cross-service approval check. **Accept.**
+5. **Web app** → Project settings → add a Web app → copy its config into `client/.env.local` (start from `client/.env.example`).
+6. **CLI:**
+   ```bash
+   npx firebase login
+   npx firebase use --add                     # select your project, alias e.g. "prod"
+   cp functions/.env.example functions/.env   # APP_REGION=asia-south1 (must match VITE_FIREBASE_FUNCTIONS_REGION)
+   npm run deploy                             # builds functions + client, deploys rules, indexes, functions, hosting
+   ```
+   Indexes can take a few minutes to build after the first deploy.
+7. **Bucket CORS** (needed for in-browser previews through `getBlob`). Edit `storage.cors.json` with your domains, then:
+   ```bash
+   gcloud storage buckets update gs://<your-bucket> --cors-file=storage.cors.json
+   ```
+8. **First admin** (uses your own Google credentials. Never commit a key file.)
+   ```bash
+   gcloud auth application-default login
+   npm run create-admin -w functions -- --project <project-id> --email admin@rcpl.com --password 'Str0ng@Pass' --name "Admin User"
+   ```
+9. **Password-reset emails**: Authentication → Templates → Password reset. Optionally set **Customize action URL** to `https://<your-domain>/reset-password` so users reset inside the branded portal (the default Firebase page also works). Configure a custom SMTP sender / domain for RCPL.
+
+### Production checklist
+- [ ] Turn on **App Check** (reCAPTCHA Enterprise) and enforce it for Firestore, Storage and Functions.
+- [ ] Block client-side account creation: upgrade Auth to **Identity Platform** and turn off "Enable create (sign-up)" (activation runs server-side, so nothing breaks).
+- [ ] Set budget alerts on the Blaze plan.
+- [ ] Restrict the browser API key to your Hosting domains (Google Cloud console → Credentials).
+- [ ] Confirm the region meets RCPL data-residency rules.
+
+---
+
+## Future phases
+
+Not built in the MVP. Planned extension points:
+
+* **OCR / AI / image-quality checks** (blur, crop, stamp, signature, invoice match, duplicates): add a Storage-triggered or Firestore-triggered function that writes results to a `podValidations` collection, and show them on the admin review screen. `lib/files.ts` is where uploads are checked today.
+* **Automated reminders, overdue PODs, email/SMS**: scheduled functions (`onSchedule`) plus extra channels in `lib/notifications.ts`, the single place where notifications are created.
+* **SAP integration**: a scheduled or HTTP function creates `PENDING` submissions from expected deliveries.
+* **Reporting / Power BI / scorecards**: the Firestore → BigQuery export extension.
+* **Full-text search**: Algolia or Typesense extension in place of `searchKeywords`.
