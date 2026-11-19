@@ -16,6 +16,6 @@ setGlobalOptions({
 
 export { activateVendorAccount, completeVendorActivation } from './handlers/activation';
 export { createVendor, updateVendor, deactivateVendor, reactivateVendor, listUploadVendors, linkVendorCategories, sendVendorInvite } from './handlers/vendors';
-export { createStaffUser, updateStaffUser, setStaffActive } from './handlers/staff';
+export { createStaffUser, updateStaffUser, setStaffActive, generateSetupLink } from './handlers/staff';
 export { reviewVendorRegistration } from './handlers/registrations';
 export { createPodSubmission, resubmitPodSubmission, updatePodStatus } from './handlers/pods';

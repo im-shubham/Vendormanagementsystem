@@ -383,6 +383,21 @@ async function main() {
     assert((await getDoc(doc(admin.db, 'vendors', vendorCId))).get('accountStatus') === 'ACTIVE', 'reactivated');
   });
 
+  await step('Setup links (when company email blocks Firebase mail): admin for staff, category for own vendors', async () => {
+    const t = await admin.call<{ link: string; email: string }>('generateSetupLink', { kind: 'STAFF', id: sugarUid });
+    assert(t.email === staff.sugar.email && /oobCode=/.test(t.link), 'staff link');
+    await expectError(catRice.call('generateSetupLink', { kind: 'STAFF', id: sugarUid }), denied, 'category cannot create staff links');
+    const vl = await catRice.call<{ link: string }>('generateSetupLink', { kind: 'VENDOR', id: vendorCId });
+    assert(/oobCode=/.test(vl.link), 'vendor link');
+    await expectError(catRice.call('generateSetupLink', { kind: 'VENDOR', id: vendorBId }), fnCode('not-found'), 'outside scope');
+    await expectError(billing.call('generateSetupLink', { kind: 'VENDOR', id: vendorCId }), denied, 'billing cannot');
+    // the link really sets a password
+    const code = new URL(vl.link).searchParams.get('oobCode')!;
+    const c2 = client('vendorC2');
+    await confirmPasswordReset(c2.auth, code, 'Linked@123');
+    await signInWithEmailAndPassword(c2.auth, vendorC.email, 'Linked@123');
+  });
+
   console.info('\nAccess control');
   await step('Duplicate invoices are refused; vendors cannot change statuses', async () => {
     const id = newId(vA);

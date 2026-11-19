@@ -158,6 +158,19 @@ Then click **Customize action URL** (bottom of the template) and set `https://<p
 
 **Not receiving it?** Check **Junk / Spam / Quarantine** first. Corporate Outlook often filters `firebaseapp.com`. Try a Gmail address to confirm it is being sent. To improve delivery to company inboxes: Templates → **Customize domain** → send from your own domain (e.g. `noreply@pod.rcpl.example`). IT adds the DNS records Firebase shows.
 
+### Company mailbox (e.g. @ril.com) receives nothing, not even in Junk?
+Gmail receiving the email proves Firebase is sending it. The company mail gateway is blocking or quarantining it before delivery, so it never reaches Junk.
+
+**Immediate workaround (no IT needed):** use **🔗 Copy password setup link**, on **Team & Access** (per user) or on the **vendor page**. Share the link with that person on Teams or WhatsApp. It is the same secure link as in the email, works once and expires in about 1 hour.
+
+**Permanent fix (pick one, with RCPL IT):**
+1. **Send Firebase emails through the company mail server (best).** Firebase console → Authentication → Templates → **SMTP settings** → enable, and enter a company mailbox (e.g. `pod.portal@<company domain>`), host `smtp.office365.com`, port `587`, security `STARTTLS`, username and password. IT must enable **SMTP AUTH** for that mailbox. Emails then come from inside the company, so they are not blocked.
+2. **Allow-list the sender.** Ask IT to run a **message trace** for sender `noreply@rcpl-pod-prod.firebaseapp.com`, release it from quarantine, and allow-list it.
+3. **Custom sender domain.** Templates → **Customize domain**, then IT adds the DNS records Firebase shows.
+
+Text you can send IT:
+> Our internal RCPL Vendor POD Portal (Google Firebase) sends account emails ("Set your password – RCPL Vendor POD Portal") from noreply@rcpl-pod-prod.firebaseapp.com. They reach Gmail but are not delivered to @ril.com mailboxes, not even Junk. Could you please check the message trace / quarantine and allow-list this sender, **or** provide an SMTP mailbox (smtp.office365.com:587 with SMTP AUTH enabled) that we can configure in Firebase so the emails are sent from our own domain?
+
 ---
 
 ## Part 5 – Event email notifications (optional, about 10 minutes)

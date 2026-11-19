@@ -28,6 +28,7 @@ const fns = {
   podAction: callFn<{ submissionId: string; action: 'FORWARD' | 'SEND_BACK' | 'MARK_BILLED'; remarks?: string | null }, { submissionId: string; status: string }>('updatePodStatus'),
   listUploadVendors: callFn<void, { vendors: UploadVendor[] }>('listUploadVendors'),
   createPod: callFn<Record<string, unknown>, { submissionId: string; submissionNumber: string; status: string }>('createPodSubmission'),
+  generateSetupLink: callFn<{ kind: 'STAFF' | 'VENDOR'; id: string }, { link: string; email: string }>('generateSetupLink'),
   sendVendorInvite: callFn<{ vendorId: string }, { email: string }>('sendVendorInvite'),
   linkVendor: callFn<{ vendorCode: string; email: string; categories: Category[] }, { vendorId: string; vendorName: string; categories: Category[] }>('linkVendorCategories'),
   createStaff: callFn<StaffInput, { uid: string }>('createStaffUser'),
@@ -242,6 +243,8 @@ export const adminService = {
   updateVendor: (id: string, data: VendorInput) => wrap(fns.updateVendor({ vendorId: id, ...data }), 'Could not update the vendor.'),
   deactivateVendor: (id: string) => wrap(fns.deactivateVendor({ vendorId: id }), 'Could not deactivate the vendor.'),
   reactivateVendor: (id: string) => wrap(fns.reactivateVendor({ vendorId: id }), 'Could not reactivate the vendor.'),
+  /** One-time 'set your password' link to share directly when email is blocked. */
+  generateSetupLink: (kind: 'STAFF' | 'VENDOR', id: string) => wrap(fns.generateSetupLink({ kind, id }), 'Could not create the link.'),
   /** Email the vendor their activation instructions again. */
   async sendVendorInvite(id: string) {
     const r = await wrap(fns.sendVendorInvite({ vendorId: id }), 'Could not send the email.');

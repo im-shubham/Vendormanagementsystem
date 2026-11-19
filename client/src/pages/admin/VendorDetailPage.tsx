@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Ban, CheckCircle2, Mail, Pencil, RotateCcw, XCircle } from 'lucide-react';
+import { ArrowLeft, Ban, CheckCircle2, Link2, Mail, Pencil, RotateCcw, XCircle } from 'lucide-react';
+import { SetupLinkDialog } from '@/components/ui/SetupLinkDialog';
 import { useAsync } from '@/hooks/useAsync';
 import { useAuth } from '@/context/AuthContext';
 import { adminService } from '@/services/adminService';
@@ -23,6 +24,7 @@ export default function VendorDetailPage() {
   const { data, error, loading, reload } = useAsync(() => adminService.getVendor(user!, id), [id]);
   const [editOpen, setEditOpen] = useState(false);
   const [action, setAction] = useState<Action>(null);
+  const [linkOpen, setLinkOpen] = useState(false);
 
   if (loading && !data) return <PageLoader />;
   if (error && !data) return <ErrorState message={error} onRetry={reload} />;
@@ -86,7 +88,10 @@ export default function VendorDetailPage() {
           <p>
             A “set your password” email was sent to <b>{v.email}</b>. After the vendor sets a password and logs in (or uses First-Time Login with vendor code <b>{v.vendorCode}</b>), an approval request appears under <b>Registration Requests</b> and you are notified.
           </p>
-          <div className="mt-3">
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button size="sm" variant="secondary" icon={<Link2 className="h-4 w-4" />} onClick={() => setLinkOpen(true)}>
+              Copy password setup link
+            </Button>
             <Button
               size="sm"
               variant="secondary"
@@ -195,6 +200,7 @@ export default function VendorDetailPage() {
         )}
       </Card>
 
+      <SetupLinkDialog target={linkOpen ? { kind: 'VENDOR', id: v.id, name: v.vendorName } : null} onClose={() => setLinkOpen(false)} />
       <VendorFormModal open={editOpen} onClose={() => setEditOpen(false)} vendor={v} onSaved={() => { toast('Vendor updated'); void reload(); }} />
       {d && (
         <ConfirmDialog

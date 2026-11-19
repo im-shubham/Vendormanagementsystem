@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Ban, Mail, Pencil, Plus, RotateCcw, Search } from 'lucide-react';
+import { Ban, Link2, Mail, Pencil, Plus, RotateCcw, Search } from 'lucide-react';
+import { SetupLinkDialog } from '@/components/ui/SetupLinkDialog';
 import clsx from 'clsx';
 import { useAsync } from '@/hooks/useAsync';
 import { useAuth } from '@/context/AuthContext';
@@ -38,6 +39,7 @@ export default function TeamPage() {
   const [editing, setEditing] = useState<StaffUser | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [toggling, setToggling] = useState<StaffUser | null>(null);
+  const [linkFor, setLinkFor] = useState<{ kind: 'STAFF'; id: string; name: string } | null>(null);
 
   const items = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -110,6 +112,11 @@ export default function TeamPage() {
                     <td className="td">{formatDate(u.createdAt)}</td>
                     <td className="td sticky right-0 bg-white">
                       <div className="flex justify-end gap-1">
+                        {u.active && (
+                          <button onClick={() => setLinkFor({ kind: 'STAFF', id: u.uid, name: u.fullName })} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-navy-800" title="Copy password setup link" aria-label={`Setup link for ${u.fullName}`}>
+                            <Link2 className="h-4 w-4" />
+                          </button>
+                        )}
                         <button onClick={() => resend(u)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-navy-800" title="Resend password email" aria-label={`Resend invite to ${u.fullName}`}>
                           <Mail className="h-4 w-4" />
                         </button>
@@ -136,6 +143,7 @@ export default function TeamPage() {
         ))}
       </Card>
 
+      <SetupLinkDialog target={linkFor} onClose={() => setLinkFor(null)} />
       <StaffFormModal
         open={formOpen}
         staff={editing}
@@ -195,7 +203,7 @@ function StaffFormModal({ open, staff, onClose, onSaved }: { open: boolean; staf
         onSaved(`${payload.fullName} updated`);
       } else {
         await adminService.createStaff({ ...payload, email: form.email.trim().toLowerCase() });
-        onSaved(`${payload.fullName} added. A "set your password" email has been sent to ${form.email.trim()}.`);
+        onSaved(`${payload.fullName} added. A "set your password" email has been sent to ${form.email.trim()}. If it doesn't arrive (company mail filters), use the 🔗 "Copy password setup link" button.`);
       }
       onClose();
     } catch (err) {
