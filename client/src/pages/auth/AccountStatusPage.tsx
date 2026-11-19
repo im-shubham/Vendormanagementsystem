@@ -30,6 +30,7 @@ const VIEWS = {
 } as const;
 
 const fromStatus: Record<string, keyof typeof VIEWS> = {
+  NOT_REGISTERED: 'ACCOUNT_PENDING',
   PENDING_APPROVAL: 'ACCOUNT_PENDING',
   REJECTED: 'ACCOUNT_REJECTED',
   DEACTIVATED: 'ACCOUNT_DEACTIVATED',

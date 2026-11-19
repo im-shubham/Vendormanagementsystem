@@ -299,18 +299,37 @@ async function main() {
   console.info('\nCategory teams manage vendors');
   const vendorC = { ...base, vendorCode: `E2EC${run}`.slice(0, 30), vendorName: `E2E Gamma Multi ${run}`, email: `gamma.${lc}@example.com`, categories: ['RICE'] };
   let vendorCId = '';
-  await step('New vendor gets an activation email; resend works', async () => {
-    const mails = await adminDb().collection('mail').get();
-    assert(mails.docs.some((m) => (m.get('to') as string[]).includes(vendorA.email) && String(m.get('message.subject')).includes('Activate')), 'vendor invite emailed');
+  await step('New vendor: login is pre-created; Firebase "set password" link → first login → approval request', async () => {
+    const vd = { ...base, vendorCode: `E2ED${run}`.slice(0, 30), vendorName: `E2E Delta ${run}`, email: `delta.${lc}@example.com`, categories: ['RICE'] };
+    const r = await catRice.call<{ vendorId: string; email: string }>('createVendor', vd);
+    assert(r.email === vd.email, 'email returned for the Firebase email');
+    const v = await getDoc(doc(admin.db, 'vendors', r.vendorId));
+    assert(v.get('authUid') && v.get('accountStatus') === 'NOT_REGISTERED', 'login created, still not registered');
+    const d = client('vendorD');
+    await setPasswordViaEmail(d, vd.email, password); // Firebase reset email → set password → sign in
+    await expectError(getDocs(query(collection(d.db, 'podSubmissions'), where('vendorId', '==', r.vendorId))), denied, 'no data before approval');
+    const done = await d.call<{ status: string }>('completeVendorActivation', {});
+    assert(done.status === 'PENDING_APPROVAL', `status ${done.status}`);
+    const again = await d.call<{ status: string }>('completeVendorActivation', {});
+    assert(again.status === 'PENDING_APPROVAL', 'idempotent');
+    const regs = await getDocs(query(collection(catRice.db, 'vendorRegistrationRequests'), where('categories', 'array-contains-any', ['RICE']), where('approvalStatus', '==', 'PENDING')));
+    const reg = regs.docs.find((x) => x.get('vendorId') === r.vendorId);
+    assert(reg, 'approval request created');
+    assert((await notes(admin)).some((x) => x.title === 'Vendor approval request' && String(x.message).includes(vd.vendorName)), 'admin notified');
+    await catRice.call('reviewVendorRegistration', { requestId: reg!.id, decision: 'APPROVED' });
+    await d.auth.currentUser!.getIdToken(true);
+    await getDocs(query(collection(d.db, 'podSubmissions'), where('vendorId', '==', r.vendorId)));
+    const other = await vB.call<{ status: string }>('completeVendorActivation', {});
+    assert(other.status === 'ACTIVE', 'already-active vendor unaffected');
   });
 
   await step('Category team creates vendors only with its own categories', async () => {
     await expectError(catRice.call('createVendor', { ...vendorC, categories: ['SUGAR'] }), denied, 'foreign category');
     vendorCId = (await catRice.call<{ vendorId: string }>('createVendor', vendorC)).vendorId;
     assert((await notes(admin)).some((x) => x.title === 'New vendor added' && String(x.message).includes(vendorC.vendorName)), 'admin told about new vendor');
-    await catRice.call('sendVendorInvite', { vendorId: vendorCId });
-    const invites = (await adminDb().collection('mail').get()).docs.filter((m) => (m.get('to') as string[]).includes(vendorC.email));
-    assert(invites.length === 2, `invite + resend (${invites.length})`);
+    const inv = await catRice.call<{ email: string }>('sendVendorInvite', { vendorId: vendorCId });
+    assert(inv.email === vendorC.email, 'resend returns email for the Firebase email');
+    await expectError(catRice.call('sendVendorInvite', { vendorId: vendorAId }), fnCode('failed-precondition'), 'already activated');
     const v = await getDoc(doc(catRice.db, 'vendors', vendorCId));
     assert(v.get('createdByRole') === 'CATEGORY', 'created by category');
     const list = await getDocs(query(collection(catRice.db, 'vendors'), where('categories', 'array-contains-any', ['RICE'])));

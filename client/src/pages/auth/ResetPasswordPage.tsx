@@ -51,7 +51,15 @@ export default function ResetPasswordPage() {
     setError(null);
     try {
       const r = await authService.resetPassword(oobCode, password);
-      navigate('/login', { replace: true, state: { notice: r.message } });
+      // Staff links continue to /admin/login, vendor links to /login.
+      let next = '/login';
+      try {
+        const c = new URL(params.get('continueUrl') ?? '', window.location.origin);
+        if (c.origin === window.location.origin && (c.pathname === '/admin/login' || c.pathname === '/login')) next = c.pathname;
+      } catch {
+        /* default */
+      }
+      navigate(next, { replace: true, state: { notice: `${r.message}${next === '/login' ? ' After logging in, your account goes to RCPL for approval.' : ''}` } });
     } catch (err) {
       setError(err instanceof AppError ? err.message : 'Reset failed. Please try again.');
     } finally {
@@ -63,7 +71,7 @@ export default function ResetPasswordPage() {
   return (
     <AuthLayout>
       <div className="mt-6 text-center">
-        <h1 className="text-2xl font-extrabold text-navy-900 sm:text-3xl">Set a New Password</h1>
+        <h1 className="text-2xl font-extrabold text-navy-900 sm:text-3xl">Set Your Password</h1>
         <p className="mt-1.5 text-slate-500">{email ? <>for <b className="text-slate-700">{email}</b></> : 'Choose a strong password for your account'}</p>
       </div>
       {checking ? (

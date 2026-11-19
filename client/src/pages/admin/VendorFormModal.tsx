@@ -95,7 +95,7 @@ export function VendorFormModal({ open, onClose, vendor, onSaved }: { open: bool
       onClose={onClose}
       size="lg"
       title={vendor ? 'Edit Vendor' : 'Add Vendor'}
-      description={vendor ? `${vendor.vendorName} · ${vendor.vendorCode}` : 'The vendor will use the registered email and vendor code to create their password.'}
+      description={vendor ? `${vendor.vendorName} · ${vendor.vendorCode}` : 'The vendor receives a "set your password" email from Firebase, then their registration comes to you for approval.'}
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={saving}>
@@ -120,7 +120,7 @@ export function VendorFormModal({ open, onClose, vendor, onSaved }: { open: bool
             onChange={set('email')}
             error={errors.email}
             disabled={emailLocked}
-            hint={emailLocked ? 'Locked — the vendor has already activated their login with this email.' : undefined}
+            hint={emailLocked ? 'Locked — the vendor has already activated their login with this email.' : 'The "set your password" email goes to this address.'}
           />
           <TextField label="Contact Person" required value={form.contactPerson} onChange={set('contactPerson')} error={errors.contactPerson} maxLength={120} />
           <TextField label="Mobile Number" required type="tel" value={form.mobileNumber} onChange={set('mobileNumber')} error={errors.mobileNumber} placeholder="+91 98XXX XXXXX" />

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase';
+import { auth, callFn, db } from '@/lib/firebase';
 import { AppError, toAppError } from '@/lib/errors';
 import type { Category, Role, User, VendorAccountStatus } from '@/types';
 
@@ -76,10 +76,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             },
           );
         } else if (role === 'VENDOR' && vendorId) {
+          let activation: 'idle' | 'running' | 'done' = 'idle';
           unsubVendor = onSnapshot(
             doc(db, 'vendors', vendorId),
             (snap) => {
               const v = snap.data() ?? {};
+              // First login after setting the password from the Firebase email:
+              // create the approval request before showing any screen.
+              if (v.accountStatus === 'NOT_REGISTERED' && activation !== 'done') {
+                if (activation === 'idle') {
+                  activation = 'running';
+                  callFn<Record<string, never>, { status: string }>('completeVendorActivation')({})
+                    .catch(() => undefined)
+                    .finally(() => {
+                      activation = 'done';
+                    });
+                }
+                return; // the snapshot fires again with PENDING_APPROVAL
+              }
               setUser({
                 uid: fu.uid,
                 role: 'VENDOR',
@@ -129,7 +143,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (role === 'VENDOR') {
       const v = await getDoc(doc(db, 'vendors', vendorId!));
-      const status = v.get('accountStatus') as VendorAccountStatus;
+      let status = v.get('accountStatus') as VendorAccountStatus;
+      // First login after setting the password from the Firebase email → send the approval request.
+      if (status === 'NOT_REGISTERED') {
+        try {
+          status = (await callFn<Record<string, never>, { status: VendorAccountStatus }>('completeVendorActivation')({})).status;
+        } catch (e) {
+          return fail(toAppError(e, 'Could not complete activation. Please try again.'));
+        }
+        if (status === 'PENDING_APPROVAL') {
+          return fail(new AppError('Your password is set and your account is now awaiting administrator approval.', 'ACCOUNT_PENDING', { vendorName: v.get('vendorName'), vendorCode: v.get('vendorCode') }));
+        }
+      }
       if (status !== 'ACTIVE') {
         const s = STATUS_ERRORS[status] ?? STATUS_ERRORS.PENDING_APPROVAL!;
         return fail(new AppError(s.message, s.code, { vendorName: v.get('vendorName'), vendorCode: v.get('vendorCode') }));

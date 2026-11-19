@@ -84,7 +84,7 @@ export default function VendorDetailPage() {
       {v.accountStatus === 'NOT_REGISTERED' && (
         <Alert kind="info" title="Waiting for the vendor to activate">
           <p>
-            An activation email was sent to <b>{v.email}</b> with the vendor code <b>{v.vendorCode}</b>. Once the vendor creates a password (First-Time Login), an approval request appears under <b>Registration Requests</b> and you are notified.
+            A “set your password” email was sent to <b>{v.email}</b>. After the vendor sets a password and logs in (or uses First-Time Login with vendor code <b>{v.vendorCode}</b>), an approval request appears under <b>Registration Requests</b> and you are notified.
           </p>
           <div className="mt-3">
             <Button
@@ -94,13 +94,13 @@ export default function VendorDetailPage() {
               onClick={async () => {
                 try {
                   await adminService.sendVendorInvite(v.id);
-                  toast(`Activation email sent to ${v.email}`);
+                  toast(`"Set your password" email sent to ${v.email}`);
                 } catch (e) {
                   toast(e instanceof Error ? e.message : 'Could not send the email', 'error');
                 }
               }}
             >
-              Resend activation email
+              Resend password email
             </Button>
           </div>
         </Alert>

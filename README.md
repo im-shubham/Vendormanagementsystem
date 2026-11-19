@@ -238,7 +238,7 @@ It also checks:
 9. **Password-reset emails**: Authentication → Templates → Password reset. Optionally set **Customize action URL** to `https://<your-domain>/reset-password` so users reset inside the branded portal (the default Firebase page also works). Configure a custom SMTP sender / domain for RCPL.
 
 ### Email notifications
-Every event creates an in-app notification (bell, realtime) **and** an email. Emails are queued in the `mail` collection and sent by the **Trigger Email from Firestore** extension. See **DEPLOY.md → Part 4** for setup and the full "who gets what" table. Vendors receive an activation email (with their vendor code) as soon as they are added, and Admin / Category teams can **Resend activation email** from the vendor page.
+Every event creates an in-app notification (bell, realtime) **and** an email. Emails are queued in the `mail` collection and sent by the **Trigger Email from Firestore** extension. See **DEPLOY.md → Part 5** for setup and the full "who gets what" table. Account emails (vendor activation, team-member invites, forgot password) are sent by **Firebase Authentication** with no setup. Branding is in **DEPLOY.md → Part 4**. Event emails need the extension (**DEPLOY.md → Part 5**).
 
 ### Upgrading an existing project to the category/billing workflow
 After deploying this version to a project that already has test data:

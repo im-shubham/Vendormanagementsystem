@@ -124,7 +124,45 @@ After the first deploy, delete the downloaded key file from your computer. You c
 
 ---
 
-## Part 4 – Email notifications (one-time, about 10 minutes)
+## Part 4 – Account emails sent by Firebase (no setup needed, optional branding)
+
+**Activation / "set your password" emails are sent by Firebase Authentication itself**, from `noreply@<project-id>.firebaseapp.com`. They work with no mailbox and no extension:
+
+* **Admin adds a vendor** → Firebase emails the vendor a link → the vendor sets a password and logs in → an approval request goes to Admin + the category team.
+* **Admin adds a team member** (Category / Billing / Admin) → Firebase emails a "set your password" link.
+* **Forgot Password** uses the same email.
+* **Resend**: Vendors → vendor page → **Resend password email**; Team & Access → ✉ icon.
+
+### Brand the email (5 minutes)
+Firebase console → **Authentication → Templates** tab → **Password reset** → ✏️ edit:
+
+| Field | Suggested value |
+|---|---|
+| Sender name | `RCPL Vendor POD Portal` |
+| Reply-to | your team's email address |
+| Subject | `Set your password – RCPL Vendor POD Portal` |
+| Message | see below (keep `%LINK%`) |
+
+```
+<p>Hello %DISPLAY_NAME%,</p>
+<p>Use the link below to set your password for the <b>RCPL Vendor POD Portal</b>
+(Reliance Consumer Products Limited). This works for new accounts and for password resets.</p>
+<p><a href='%LINK%'>Set my password</a></p>
+<p>Your login email: %EMAIL%</p>
+<p>New vendors: after you set your password and log in, RCPL will approve your account.</p>
+<p>If you did not expect this email, you can ignore it.</p>
+<p>Thanks,<br>RCPL Vendor Team</p>
+```
+
+Then click **Customize action URL** (bottom of the template) and set `https://<project-id>.web.app/reset-password`, so people set their password on the branded RCPL page. Deploy the website first with `npm run deploy`. Without this step, Firebase's own simple page is used, which also works.
+
+**Not receiving it?** Check **Junk / Spam / Quarantine** first. Corporate Outlook often filters `firebaseapp.com`. Try a Gmail address to confirm it is being sent. To improve delivery to company inboxes: Templates → **Customize domain** → send from your own domain (e.g. `noreply@pod.rcpl.example`). IT adds the DNS records Firebase shows.
+
+---
+
+## Part 5 – Event email notifications (optional, about 10 minutes)
+
+POD events (new POD, forwarded to billing, sent back, billed, approval requests) always appear as **in-app notifications**. To also send them **by email**, connect a mailbox once with the extension below. Firebase Authentication can only send account emails, not these.
 
 The portal queues every email in the Firestore collection **`mail`**. Firebase's official **Trigger Email from Firestore** extension picks them up and sends them through your SMTP mailbox. Until the extension is installed, emails just wait in that collection. In-app notifications work either way.
 
@@ -132,7 +170,7 @@ The portal queues every email in the Firestore collection **`mail`**. Firebase's
 
 | Event | In-app + email to |
 |---|---|
-| Vendor added (by Admin or Category team) | Vendor: activation email with vendor code (in-app note to Admins + that category team) |
+| Vendor added (by Admin or Category team) | Vendor: Firebase "set your password" email (Part 4) · in-app note to Admins + that category team |
 | Vendor completes First-Time Login | Admins + category team(s) of the vendor: approval request |
 | Registration approved / rejected | Vendor |
 | Vendor uploads a POD | Category team of that category + all Admins (vendor gets a confirmation) |

@@ -20,7 +20,7 @@ import type {
 type StaffInput = { email: string; fullName: string; role: StaffRole; categories: Category[] };
 
 const fns = {
-  createVendor: callFn<VendorInput, { vendorId: string }>('createVendor'),
+  createVendor: callFn<VendorInput, { vendorId: string; email: string }>('createVendor'),
   updateVendor: callFn<VendorInput & { vendorId: string }, { vendorId: string }>('updateVendor'),
   deactivateVendor: callFn<{ vendorId: string }, { vendorId: string; accountStatus: string }>('deactivateVendor'),
   reactivateVendor: callFn<{ vendorId: string }, { vendorId: string; accountStatus: string }>('reactivateVendor'),
@@ -28,7 +28,7 @@ const fns = {
   podAction: callFn<{ submissionId: string; action: 'FORWARD' | 'SEND_BACK' | 'MARK_BILLED'; remarks?: string | null }, { submissionId: string; status: string }>('updatePodStatus'),
   listUploadVendors: callFn<void, { vendors: UploadVendor[] }>('listUploadVendors'),
   createPod: callFn<Record<string, unknown>, { submissionId: string; submissionNumber: string; status: string }>('createPodSubmission'),
-  sendVendorInvite: callFn<{ vendorId: string }, { sent: boolean }>('sendVendorInvite'),
+  sendVendorInvite: callFn<{ vendorId: string }, { email: string }>('sendVendorInvite'),
   linkVendor: callFn<{ vendorCode: string; email: string; categories: Category[] }, { vendorId: string; vendorName: string; categories: Category[] }>('linkVendorCategories'),
   createStaff: callFn<StaffInput, { uid: string }>('createStaffUser'),
   updateStaff: callFn<StaffInput & { uid: string }, { uid: string }>('updateStaffUser'),
@@ -233,12 +233,21 @@ export const adminService = {
       'Could not load the vendor.',
     ),
 
-  createVendor: (data: VendorInput) => wrap(fns.createVendor(data), 'Could not create the vendor.'),
+  /** Creates the vendor (and its login), then Firebase emails the vendor a "set your password" link. */
+  async createVendor(data: VendorInput) {
+    const r = await wrap(fns.createVendor(data), 'Could not create the vendor.');
+    await adminService.sendSetPasswordEmail(r.email, '/login');
+    return r;
+  },
   updateVendor: (id: string, data: VendorInput) => wrap(fns.updateVendor({ vendorId: id, ...data }), 'Could not update the vendor.'),
   deactivateVendor: (id: string) => wrap(fns.deactivateVendor({ vendorId: id }), 'Could not deactivate the vendor.'),
   reactivateVendor: (id: string) => wrap(fns.reactivateVendor({ vendorId: id }), 'Could not reactivate the vendor.'),
   /** Email the vendor their activation instructions again. */
-  sendVendorInvite: (id: string) => wrap(fns.sendVendorInvite({ vendorId: id }), 'Could not send the email.'),
+  async sendVendorInvite(id: string) {
+    const r = await wrap(fns.sendVendorInvite({ vendorId: id }), 'Could not send the email.');
+    await adminService.sendSetPasswordEmail(r.email, '/login');
+    return r;
+  },
   /** Category team: add their category to a vendor created by another team. */
   linkVendor: (vendorCode: string, email: string, categories: Category[]) => wrap(fns.linkVendor({ vendorCode, email, categories }), 'Could not add the vendor.'),
 
@@ -277,8 +286,17 @@ export const adminService = {
   },
   updateStaff: (uid: string, input: Omit<StaffInput, 'email'>) => wrap(fns.updateStaff({ uid, email: '', ...input }), 'Could not update the user.'),
   setStaffActive: (uid: string, active: boolean) => wrap(fns.setStaffActive({ uid, active }), 'Could not update the user.'),
-  sendInvite: (email: string) =>
-    wrap(sendPasswordResetEmail(auth, email, { url: `${window.location.origin}/admin/login` }), 'The user was created, but the password email could not be sent. Use "Resend invite".'),
+  sendInvite: (email: string) => adminService.sendSetPasswordEmail(email, '/admin/login'),
+
+  /**
+   * Firebase Authentication email ("set your password" link). Sent by Firebase
+   * itself — wording is customised in Firebase Console → Authentication → Templates.
+   */
+  sendSetPasswordEmail: (email: string, afterPath: string) =>
+    wrap(
+      sendPasswordResetEmail(auth, email, { url: `${window.location.origin}${afterPath}` }),
+      'The account was created, but the "set your password" email could not be sent. Use "Resend" to try again.',
+    ),
 };
 
 export type { StaffUser };

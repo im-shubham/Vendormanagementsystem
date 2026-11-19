@@ -243,7 +243,7 @@ export default function VendorsPage() {
         onClose={closeForm}
         vendor={editing}
         onSaved={(v) => {
-          toast(editing ? `${v.vendorName} updated` : `${v.vendorName} created. An activation email with vendor code ${v.vendorCode} has been sent to the vendor.`);
+          toast(editing ? `${v.vendorName} updated` : `${v.vendorName} created. Firebase has emailed the vendor a "set your password" link (vendor code ${v.vendorCode}).`);
           refresh();
         }}
       />
