@@ -2,15 +2,20 @@ import { confirmPasswordReset, sendPasswordResetEmail, signOut, verifyPasswordRe
 import { auth, callFn } from '@/lib/firebase';
 import { toAppError } from '@/lib/errors';
 
-const activateFn = callFn<{ email: string; vendorCode: string; password: string; confirmPassword: string }, { status: string; message: string }>('activateVendorAccount');
+const setupEmailFn = callFn<{ email: string; vendorCode: string }, { email: string }>('requestVendorSetupEmail');
 
 export const authService = {
-  /** First-time activation runs in a Cloud Function (validates against the vendor master). */
-  activate: async (data: { email: string; vendorCode: string; password: string; confirmPassword: string }) => {
+  /**
+   * New vendor didn't get the "set your password" email: verify registered
+   * email + vendor code, then Firebase Auth sends the email again.
+   */
+  requestSetupEmail: async (email: string, vendorCode: string) => {
     try {
-      return await activateFn(data);
+      const r = await setupEmailFn({ email, vendorCode });
+      await sendPasswordResetEmail(auth, r.email, { url: `${window.location.origin}/login` });
+      return r;
     } catch (e) {
-      throw toAppError(e, 'Activation failed. Please try again.');
+      throw toAppError(e, 'Could not send the email. Please try again.');
     }
   },
   forgotPassword: async (email: string) => {

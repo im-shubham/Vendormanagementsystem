@@ -14,7 +14,7 @@ setGlobalOptions({
   timeoutSeconds: 60,
 });
 
-export { activateVendorAccount, completeVendorActivation } from './handlers/activation';
+export { requestVendorSetupEmail, completeVendorActivation } from './handlers/activation';
 export { createVendor, updateVendor, deactivateVendor, reactivateVendor, listUploadVendors, linkVendorCategories, sendVendorInvite } from './handlers/vendors';
 export { createStaffUser, updateStaffUser, setStaffActive, generateSetupLink } from './handlers/staff';
 export { reviewVendorRegistration } from './handlers/registrations';

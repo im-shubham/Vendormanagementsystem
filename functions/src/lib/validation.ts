@@ -52,9 +52,7 @@ export const categoriesSchema = z
   .transform((a) => [...new Set(a)].sort());
 
 export const schemas = {
-  activate: z
-    .object({ email: emailSchema, vendorCode: vendorCodeSchema, password: passwordSchema, confirmPassword: z.string() })
-    .refine((d) => d.password === d.confirmPassword, { path: ['confirmPassword'], message: 'Passwords do not match' }),
+  setupEmail: z.object({ email: emailSchema, vendorCode: vendorCodeSchema }),
   vendor: z.object({
     vendorName: text('Vendor name', 200),
     vendorCode: vendorCodeSchema,

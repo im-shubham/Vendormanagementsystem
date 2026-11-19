@@ -141,8 +141,11 @@ async function main() {
 
   await step('Vendors activate (pending until approved) and admin approves', async () => {
     for (const [c, v, id] of [[vA, vendorA, vendorAId], [vB, vendorB, vendorBId]] as const) {
-      await c.call('activateVendorAccount', { email: v.email, vendorCode: v.vendorCode, password, confirmPassword: password });
-      await signInWithEmailAndPassword(c.auth, v.email, password);
+      await expectError(c.call('requestVendorSetupEmail', { email: v.email, vendorCode: 'WRONG1' }), appCode('VALIDATION'), 'wrong vendor code');
+      const r = await c.call<{ email: string }>('requestVendorSetupEmail', { email: v.email.toUpperCase(), vendorCode: v.vendorCode.toLowerCase() });
+      assert(r.email === v.email, 'setup email target');
+      await setPasswordViaEmail(c, v.email, password); // password set only via the Firebase email link
+      await c.call('completeVendorActivation', {}); // what the app does on first login
       await expectError(getDocs(query(collection(c.db, 'podSubmissions'), where('vendorId', '==', id))), denied, 'pending vendor reads');
       const regs = await getDocs(query(collection(admin.db, 'vendorRegistrationRequests'), where('vendorId', '==', id), where('approvalStatus', '==', 'PENDING')));
       await admin.call('reviewVendorRegistration', { requestId: regs.docs[0].id, decision: 'APPROVED' });
@@ -361,7 +364,9 @@ async function main() {
 
   await step('Category team sees and approves registrations for its vendors; billing cannot', async () => {
     const c = client('vendorC');
-    await c.call('activateVendorAccount', { email: vendorC.email, vendorCode: vendorC.vendorCode, password, confirmPassword: password });
+    await setPasswordViaEmail(c, vendorC.email, password);
+    await c.call('completeVendorActivation', {});
+    await expectError(c.call('requestVendorSetupEmail', { email: vendorC.email, vendorCode: vendorC.vendorCode }), appCode('ALREADY_ACTIVATED'), 'setup email after activation');
     const regs = await getDocs(query(collection(catSugar.db, 'vendorRegistrationRequests'), where('categories', 'array-contains-any', ['SUGAR']), where('approvalStatus', '==', 'PENDING')));
     const reg = regs.docs.find((d) => d.get('vendorId') === vendorCId);
     assert(reg, 'sugar team sees request');

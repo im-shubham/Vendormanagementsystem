@@ -15,10 +15,11 @@ import { parse, schemas } from '../lib/validation';
  *    right away (random throwaway password, claims {role: VENDOR, vendorId})
  *    and the web app asks Firebase Auth to email a "set your password" link.
  *    Status stays NOT_REGISTERED.
- * 2. Vendor sets a password (Firebase email link) and logs in → the app calls
- *    `completeVendorActivation` → registration request + PENDING_APPROVAL.
- *    (Alternative: the manual "First-Time Login" page with email + vendor
- *    code → `activateVendorAccount`.)
+ * 2. Vendor sets a password from the Firebase email link and logs in → the app
+ *    calls `completeVendorActivation` → registration request + PENDING_APPROVAL
+ *    (the vendor sees "awaiting approval", not the dashboard).
+ *    Email not received? `requestVendorSetupEmail` (email + vendor code)
+ *    re-sends the link. Passwords are never entered anywhere else.
  * 3. Admin / Category team approves → ACTIVE.
  * Passwords are only ever stored by Firebase Auth, never in Firestore.
  */
@@ -109,30 +110,25 @@ function statusError(status: string) {
 }
 
 /**
- * Manual "First-Time Login" (unauthenticated): registered email + vendor code
- * + new password. Both must match an existing NOT_REGISTERED vendor.
+ * "Didn't get the password email?" (unauthenticated). The vendor proves who
+ * they are with registered email + vendor code (both must match); the login
+ * is (re)created if needed and the web app then asks Firebase Auth to send the
+ * "set your password" email again. No password is ever entered here — it is
+ * only set from the Firebase email link.
  */
-export const activateVendorAccount = onCall(async (req) => {
-  const { email, vendorCode, password } = parse(schemas.activate, req.data);
-
+export const requestVendorSetupEmail = onCall(async (req) => {
+  const { email, vendorCode } = parse(schemas.setupEmail, req.data);
   const match = await db.collection(COL.vendors).where('email', '==', email).where('vendorCode', '==', vendorCode).limit(1).get();
   if (match.empty) {
-    throw invalid('No vendor record matches this email and vendor code. Please check the details or contact the RCPL vendor administration team.');
+    throw invalid('No vendor record matches this email and vendor code. Please check the details or contact the RCPL team.');
   }
-  const vendorId = match.docs[0].id;
   const status = match.docs[0].get('accountStatus') as string;
-  if (status !== 'NOT_REGISTERED') throw statusError(status);
-
-  const { uid } = await ensureVendorLogin(vendorId);
-  try {
-    await adminAuth.updateUser(uid, { password });
-  } catch (err: any) {
-    if (err?.code === 'auth/invalid-password' || err?.code === 'auth/password-does-not-meet-requirements') throw invalid(err.message);
-    throw err;
+  if (status === 'PENDING_APPROVAL' || status === 'ACTIVE') {
+    throw conflict('Your password is already set. Please log in, or use "Forgot Password" if you do not remember it.', 'ALREADY_ACTIVATED');
   }
-  const r = await startRegistration(vendorId);
-  if (!r.started) throw statusError(r.vendor.accountStatus);
-  return { status: 'PENDING_APPROVAL', message: ACCOUNT_MESSAGES.PENDING_APPROVAL.message };
+  if (status !== 'NOT_REGISTERED') throw statusError(status);
+  const { email: loginEmail } = await ensureVendorLogin(match.docs[0].id);
+  return { email: loginEmail };
 });
 
 /**

@@ -68,7 +68,7 @@ npm run create-admin -w functions -- --project <project-id> --email you@rcpl.com
 ```
 
 8. Open `https://<project-id>.web.app/admin/login` and sign in.
-   Add your first vendor, then the vendor uses **First-Time Login** at `https://<project-id>.web.app/login`.
+   Add your first vendor. Firebase emails them a "set your password" link; after setting it they log in at `https://<project-id>.web.app/login` and you approve them.
 
 > Composite indexes take a few minutes to build after the first deploy. If a list shows "index is still being created", wait and refresh.
 
@@ -81,7 +81,7 @@ npm run dev:emulator         # terminal 3 → http://localhost:5173
 npm test                     # full automated test suite (stop terminal 1 first)
 ```
 
-Demo logins (emulator only): admin `admin@rcpl.demo` / `Admin@12345`. For a vendor, use First-Time Login with `abcfoods@example.com` + `V1001`.
+Demo logins (emulator only): admin `admin@rcpl.demo` / `Admin@12345`. For a vendor: login page → **New vendor? Get your password setup email** with `abcfoods@example.com` + `V1001` (the link appears in the Emulator UI → Authentication).
 
 ### Corporate network notes
 * If `npm install` or `firebase login` fails behind the office proxy, set `HTTPS_PROXY`/`HTTP_PROXY` (and `npm config set proxy …`), or use a personal network for the one-time setup.
@@ -184,7 +184,7 @@ The portal queues every email in the Firestore collection **`mail`**. Firebase's
 | Event | In-app + email to |
 |---|---|
 | Vendor added (by Admin or Category team) | Vendor: Firebase "set your password" email (Part 4) · in-app note to Admins + that category team |
-| Vendor completes First-Time Login | Admins + category team(s) of the vendor: approval request |
+| Vendor sets password and logs in the first time | Admins + category team(s) of the vendor: approval request |
 | Registration approved / rejected | Vendor |
 | Vendor uploads a POD | Category team of that category + all Admins (vendor gets a confirmation) |
 | Category team uploads on a vendor's behalf | Vendor + Admins (+ Billing if "forward now") |

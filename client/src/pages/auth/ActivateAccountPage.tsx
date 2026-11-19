@@ -1,61 +1,62 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Hash, Hourglass, Lock, Mail } from 'lucide-react';
+import { ArrowLeft, Hash, Mail, MailCheck } from 'lucide-react';
 import { AuthLayout } from '@/layouts/AuthLayout';
 import { Button } from '@/components/ui/Button';
-import { PasswordField, TextField } from '@/components/ui/Field';
+import { TextField } from '@/components/ui/Field';
 import { Alert } from '@/components/ui/Feedback';
 import { authService } from '@/services/authService';
 import { AppError } from '@/lib/errors';
-import { PasswordRules, passwordValid } from './PasswordRules';
+import { SUPPORT_EMAIL } from '@/utils/constants';
 
-type Form = { email: string; vendorCode: string; password: string; confirmPassword: string };
-
+/**
+ * New vendors receive a "set your password" email when RCPL adds them.
+ * This page only re-sends that email (registered email + vendor code must
+ * match). Passwords are set exclusively from the email link.
+ */
 export default function ActivateAccountPage() {
-  const [form, setForm] = useState<Form>({ email: '', vendorCode: '', password: '', confirmPassword: '' });
-  const [errors, setErrors] = useState<Partial<Record<keyof Form, string>>>({});
+  const [email, setEmail] = useState('');
+  const [vendorCode, setVendorCode] = useState('');
+  const [errors, setErrors] = useState<{ email?: string; vendorCode?: string }>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [done, setDone] = useState(false);
-  const set = (k: keyof Form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const [sentTo, setSentTo] = useState<string | null>(null);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const errs: typeof errors = {};
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim())) errs.email = 'Enter your registered email address';
-    if (!/^[A-Za-z0-9_-]{2,30}$/.test(form.vendorCode.trim())) errs.vendorCode = 'Enter the vendor code provided by RCPL';
-    if (!passwordValid(form.password)) errs.password = 'Password does not meet the requirements below';
-    if (form.password !== form.confirmPassword) errs.confirmPassword = 'Passwords do not match';
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) errs.email = 'Enter your registered email address';
+    if (!/^[A-Za-z0-9_-]{2,30}$/.test(vendorCode.trim())) errs.vendorCode = 'Enter the vendor code provided by RCPL';
     setErrors(errs);
     if (Object.keys(errs).length) return;
-
     setLoading(true);
     setError(null);
     try {
-      await authService.activate({ ...form, email: form.email.trim(), vendorCode: form.vendorCode.trim() });
-      setDone(true);
+      const r = await authService.requestSetupEmail(email.trim().toLowerCase(), vendorCode.trim().toUpperCase());
+      setSentTo(r.email);
     } catch (err) {
-      if (err instanceof AppError) {
-        setError(err.message);
-        setErrors(err.fields as typeof errors);
-      } else setError('Activation failed. Please try again.');
+      setError(err instanceof AppError ? err.message : 'Could not send the email. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  if (done) {
+  if (sentTo) {
     return (
       <AuthLayout>
         <div className="mt-8 text-center">
-          <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-amber-50 ring-8 ring-amber-50/50">
-            <Hourglass className="h-8 w-8 text-amber-500" />
+          <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-emerald-50 ring-8 ring-emerald-50/50">
+            <MailCheck className="h-8 w-8 text-emerald-600" />
           </div>
-          <h1 className="mt-5 text-2xl font-extrabold text-navy-900">Password created</h1>
+          <h1 className="mt-5 text-2xl font-extrabold text-navy-900">Check your email</h1>
           <p className="mx-auto mt-2 max-w-sm text-slate-600">
-            Your account has been created and sent to RCPL for verification. <b>Your account is awaiting administrator approval.</b>
+            We sent a <b>“Set your password”</b> link to <b>{sentTo}</b>.
           </p>
-          <p className="mx-auto mt-2 max-w-sm text-sm text-slate-500">You will be able to log in once an administrator approves your registration.</p>
+          <ol className="mx-auto mt-5 max-w-sm space-y-2 text-left text-sm text-slate-600">
+            <li>1. Open the email (check Spam/Junk too) and click the link.</li>
+            <li>2. Choose your password.</li>
+            <li>3. Log in with your email and that password — your account then goes to RCPL for approval.</li>
+          </ol>
           <Link to="/login" className="mt-8 inline-flex h-12 items-center gap-2 rounded-xl bg-royal-800 px-6 font-semibold text-white hover:bg-royal-700">
             <ArrowLeft className="h-4 w-4" /> Back to login
           </Link>
@@ -67,24 +68,26 @@ export default function ActivateAccountPage() {
   return (
     <AuthLayout>
       <div className="mt-6 text-center">
-        <h1 className="text-2xl font-extrabold text-navy-900 sm:text-3xl">First-Time Login</h1>
-        <p className="mt-1.5 text-slate-500">Create your password using the details registered with RCPL</p>
+        <h1 className="text-2xl font-extrabold text-navy-900 sm:text-3xl">New Vendor Account</h1>
+        <p className="mx-auto mt-1.5 max-w-md text-slate-500">
+          When RCPL adds you as a vendor, you receive a <b>“Set your password”</b> email. Didn’t get it? Enter your details and we’ll send it again.
+        </p>
       </div>
       <form onSubmit={submit} noValidate className="mt-7 space-y-4">
         {error && <Alert kind="error">{error}</Alert>}
-        <TextField label="Registered Email" required type="email" placeholder="name@company.com" icon={<Mail className="h-5 w-5" />} autoComplete="email" value={form.email} onChange={set('email')} error={errors.email} />
-        <TextField label="Vendor Code" required placeholder="e.g. V1001" icon={<Hash className="h-5 w-5" />} value={form.vendorCode} onChange={set('vendorCode')} error={errors.vendorCode} hint="Provided by RCPL when your vendor record was created." />
-        <PasswordField label="New Password" required placeholder="Create a strong password" icon={<Lock className="h-5 w-5" />} autoComplete="new-password" value={form.password} onChange={set('password')} error={errors.password} />
-        <PasswordRules password={form.password} />
-        <PasswordField label="Confirm Password" required placeholder="Re-enter your password" icon={<Lock className="h-5 w-5" />} autoComplete="new-password" value={form.confirmPassword} onChange={set('confirmPassword')} error={errors.confirmPassword} />
+        <TextField label="Registered Email" required type="email" placeholder="name@company.com" icon={<Mail className="h-5 w-5" />} autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} error={errors.email} />
+        <TextField label="Vendor Code" required placeholder="e.g. V1001" icon={<Hash className="h-5 w-5" />} value={vendorCode} onChange={(e) => setVendorCode(e.target.value)} error={errors.vendorCode} hint="Provided by RCPL when your vendor record was created." />
         <Button type="submit" size="lg" block loading={loading} className="!mt-6">
-          Create Password
+          Send Password Setup Email
         </Button>
         <p className="text-center text-sm text-slate-500">
-          Already activated?{' '}
+          Already set your password?{' '}
           <Link to="/login" className="link">
-            Back to login
+            Log in
           </Link>
+        </p>
+        <p className="text-center text-xs text-slate-400">
+          Still no email? Ask your RCPL contact for a password setup link, or write to <a className="link font-medium" href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>.
         </p>
       </form>
     </AuthLayout>

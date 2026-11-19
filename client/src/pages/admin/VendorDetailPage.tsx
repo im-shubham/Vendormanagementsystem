@@ -86,7 +86,7 @@ export default function VendorDetailPage() {
       {v.accountStatus === 'NOT_REGISTERED' && (
         <Alert kind="info" title="Waiting for the vendor to activate">
           <p>
-            A “set your password” email was sent to <b>{v.email}</b>. After the vendor sets a password and logs in (or uses First-Time Login with vendor code <b>{v.vendorCode}</b>), an approval request appears under <b>Registration Requests</b> and you are notified.
+            A “set your password” email was sent to <b>{v.email}</b>. After the vendor sets a password from that link and logs in, an approval request appears under <b>Registration Requests</b> and you are notified.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button size="sm" variant="secondary" icon={<Link2 className="h-4 w-4" />} onClick={() => setLinkOpen(true)}>

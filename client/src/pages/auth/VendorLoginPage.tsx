@@ -88,7 +88,7 @@ export function LoginForm({ portal }: { portal: 'vendor' | 'admin' }) {
             to="/activate"
             className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border-2 border-royal-200 bg-royal-50/60 text-[15px] font-semibold text-royal-800 transition hover:border-royal-300 hover:bg-royal-50"
           >
-            <KeyRound className="h-5 w-5" /> First-Time Login / Create Password
+            <KeyRound className="h-5 w-5" /> New vendor? Get your password setup email
           </Link>
         </>
       )}

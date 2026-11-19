@@ -106,11 +106,13 @@ The original file name is stored as custom metadata and in `podDocuments`. Binar
 
 ## Key workflows
 
-### Vendor activation (first-time login)
-1. An admin creates the vendor record (`createVendor`). It starts as `NOT_REGISTERED`.
-2. The vendor opens **First-Time Login / Create Password** and enters registered email + vendor code + new password.
-3. `activateVendorAccount` checks that **both** match an existing `NOT_REGISTERED` vendor. Then it creates the Firebase Auth user (Firebase stores the password hash; nothing is stored in Firestore), sets claims `{role: VENDOR, vendorId}`, creates the `userProfile` and registration request, and sets the vendor to `PENDING_APPROVAL`. Duplicates are blocked by Firebase Auth's unique email and a transactional status check.
-4. An admin approves or rejects (`reviewVendorRegistration`). Only `ACTIVE` vendors can read data or call vendor functions.
+### Vendor activation
+1. Admin or a category team adds the vendor (`createVendor`). Their Firebase login is created at once (status `NOT_REGISTERED`), and **Firebase Authentication emails a "Set your password" link**.
+2. The vendor sets a password **from that link** (the only place a password is ever set) and logs in with email + password.
+3. On that first login the app calls `completeVendorActivation`, which creates the registration request and sets `PENDING_APPROVAL`. The vendor sees "Awaiting approval", not the dashboard. Admin and the category team(s) are notified.
+4. Admin or the category team approves (`reviewVendorRegistration`). Only `ACTIVE` vendors can read data or call vendor functions.
+
+Email didn't arrive? The vendor uses **"New vendor? Get your password setup email"** on the login page (registered email + vendor code, no password fields), which re-sends the link. RCPL staff can also **Copy password setup link** from the vendor page.
 
 ### POD upload
 1. The form validates required fields and the file type/size in the browser.
@@ -170,7 +172,7 @@ npm run dev:emulator          # http://localhost:5173   (Emulator UI: http://127
 | Category team (Rice, Pulses) | `category.rice@rcpl.demo` / `Category@123` |
 | Category team (Edible Oils, Ghee) | `category.oils@rcpl.demo` / `Category@123` |
 | Billing team | `billing@rcpl.demo` / `Billing@123` |
-| Vendor | Use **First-Time Login** with `abcfoods@example.com` + vendor code `V1001`, then approve it in the Admin Portal |
+| Vendor | Login page → **New vendor? Get your password setup email** with `abcfoods@example.com` + `V1001`. Open the link in the Emulator UI → Authentication, set a password, log in, then approve in the Staff Portal |
 
 Other seeded vendors: `V1002 xyzagri@example.com`, `V1003 mnoexports@example.com`, `V1004 globalfoods@example.com`.
 Password-reset emails are not sent in the emulator. The links appear in the Emulator UI → Authentication.
